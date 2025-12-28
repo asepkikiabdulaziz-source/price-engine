@@ -1,0 +1,7 @@
+product_group_code,rule_type,level,zone_code,region_code,depo_code
+NEXTAR,allow,zona,"""DP""",NULL,NULL
+NXT-E02K,deny,zona,"""DP""",NULL,NULL
+NXC-E02K,deny,zona,"""DP""",NULL,NULL
+CSD-12,allow,region,NULL,"""R05, R07, R09, R10, R11""",NULL
+CSD-24,deny,region,NULL,"""R05, R07, R09, R10, R11""",NULL
+SIP-KRIM,allow,zona,"""KALSUL""",NULL,NULL

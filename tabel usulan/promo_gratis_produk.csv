@@ -1,0 +1,5 @@
+promo_id,description,trigger_type,min_purchase_amount,min_quantity,purchase_scope,principal_ids,required_product_id,free_product_id,free_quantity
+free-001,Gratis Produk A 1pcs Min Belanja 50rb,nominal,50000,,total_invoice,,300096,300096,1
+free-002,Gratis Produk B 1pcs Min Beli 10pcs,qty,,10,per_principal,300096,300097,300097,1
+free-003,Gratis Produk C 1pcs Min Belanja 100rb Per Principal,nominal,100000,,per_principal,300096,300098,300098,1
+

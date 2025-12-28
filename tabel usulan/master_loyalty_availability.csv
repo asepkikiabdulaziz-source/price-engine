@@ -1,0 +1,5 @@
+loyalty_class_code,rule_type,level,zone_code,region_code,depo_code
+A,allow,all,all,all,all
+B,allow,all,all,all,all
+C,allow,all,all,all,all
+

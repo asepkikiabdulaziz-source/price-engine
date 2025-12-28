@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Price Engine - Aplikasi Manajemen Harga">
+    <title>Nabaticuan - Price Engine</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+    <div class="container">
+        <!-- Login Section -->
+        <div id="login-section" class="login-section">
+            <div class="login-card">
+                <h1>Nabaticuan</h1>
+                <form id="login-form">
+                    <div class="form-group">
+                        <label for="region">Region</label>
+                        <select id="region" name="region" required>
+                            <option value="">Pilih Region</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="depo">Depo</label>
+                        <select id="depo" name="depo" required disabled>
+                            <option value="">Pilih Depo</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="kode-sales">Kode Sales</label>
+                        <input type="text" id="kode-sales" name="kode-sales" placeholder="Masukkan Kode Sales" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" name="password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Login</button>
+                </form>
+                <div id="login-error" class="error-message"></div>
+            </div>
+        </div>
+
+        <!-- Main App Section -->
+        <div id="app-section" class="app-section" style="display: none;">
+            <header class="header">
+                <div class="header-left">
+                    <h1>Nabaticuan</h1>
+                </div>
+                <div class="header-user-info" id="header-user-info" style="display: none;">
+                    <div class="user-info-items">
+                        <div class="user-info-item">
+                            <span class="user-info-label">Nama:</span>
+                            <span class="user-info-value" id="user-name">-</span>
+                        </div>
+                        <div class="user-info-item">
+                            <span class="user-info-label">Depo:</span>
+                            <span class="user-info-value" id="user-depo">-</span>
+                        </div>
+                        <div class="user-info-item">
+                            <span class="user-info-label">Region:</span>
+                            <span class="user-info-value" id="user-region">-</span>
+                        </div>
+                        <div class="user-info-item">
+                            <span class="user-info-label">Zona:</span>
+                            <span class="user-info-value" id="user-zona">-</span>
+                        </div>
+                        <div class="user-info-item">
+                            <span class="user-info-label">Divisi:</span>
+                            <span class="user-info-value" id="user-div-sls">-</span>
+                        </div>
+                    </div>
+                    <div class="header-right">
+                        <button id="logout-btn" class="btn btn-secondary">Logout</button>
+                    </div>
+                </div>
+            </header>
+            <main class="main-content">
+                <!-- Store Type Selection (Outside tab, always visible) -->
+                <div class="card store-type-card">
+                    <h2>Type Toko</h2>
+                    <div class="store-type-options">
+                        <label class="radio-option">
+                            <input type="radio" name="store-type" value="retail" id="store-retail">
+                            <span>Retail</span>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="store-type" value="grosir" id="store-grosir">
+                            <span>Grosir</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Main Layout: Tab Content + Cart Sidebar -->
+                <div class="main-layout">
+                    <!-- Tab Content -->
+                    <div class="tab-content-wrapper">
+                        <div class="tab-content">
+                            <!-- Tab 1: Simulasi Order -->
+                            <div class="tab-pane active" id="tab-simulasi">
+                                <div class="product-column">
+                                    <div class="card products-card">
+                                        <h2>Daftar Produk</h2>
+                                        <div class="product-groups" id="product-groups">
+                                            <div class="loading-message">Memuat data produk...</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Tab 2: Tabel Promosi -->
+                            <div class="tab-pane" id="tab-promosi">
+                                <div class="promosi-section">
+                                    <div class="card">
+                                        <h2>Tabel Promosi</h2>
+                                        <div class="promo-table-container">
+                                            <p>Daftar promosi akan ditampilkan di sini</p>
+                                            <!-- Tabel promosi akan di-load dari database -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Tab 3: KPI -->
+                            <div class="tab-pane" id="tab-kpi">
+                                <div class="kpi-section">
+                                    <div class="card">
+                                        <h2>KPI</h2>
+                                        <div class="kpi-content">
+                                            <p>Dashboard KPI akan ditampilkan di sini</p>
+                                            <!-- KPI metrics akan di-load dari database -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Order Cart Sidebar (Desktop: Sticky, Mobile: Fixed Modal) -->
+                    <aside class="cart-sidebar" id="cart-sidebar">
+                        <button id="close-cart-btn" class="close-cart">&times;</button>
+                        <h2>Keranjang</h2>
+                        <div class="cart-items" id="cart-items">
+                            <div class="empty-cart">Belum ada produk dalam keranjang</div>
+                        </div>
+
+                        <!-- Calculation Result -->
+                        <div class="calculation-section">
+                            <h2>Hasil Perhitungan</h2>
+                            <div class="calculation-details" id="calculation-details">
+                                <div class="calc-row">
+                                    <span>Total Harga Dasar:</span>
+                                    <span class="amount" id="total-base-price">Rp 0</span>
+                                </div>
+                                <div class="calc-row">
+                                    <span>Diskon Principal:</span>
+                                    <span class="amount discount" id="principal-discount">- Rp 0</span>
+                                </div>
+                                <div class="calc-row">
+                                    <span>Promo Grup Produk:</span>
+                                    <span class="amount discount" id="group-discount">- Rp 0</span>
+                                </div>
+                                <div class="calc-row">
+                                    <span>Promo Bundling:</span>
+                                    <span class="amount discount" id="bundle-discount">- Rp 0</span>
+                                </div>
+                                <div class="calc-row">
+                                    <span>Promo Gratis Produk:</span>
+                                    <span class="amount discount" id="free-product-discount">- Rp 0</span>
+                                </div>
+                                <div class="calc-row">
+                                    <span>Diskon Invoice:</span>
+                                    <span class="amount discount" id="invoice-discount">- Rp 0</span>
+                                </div>
+                                <div class="calc-row total-row">
+                                    <span><strong>Total Harga Nett:</strong></span>
+                                    <span class="amount total" id="total-nett-price"><strong>Rp 0</strong></span>
+                                </div>
+                                <div class="calc-row payment-row">
+                                    <span>Metode Pembayaran:</span>
+                                    <select id="payment-method" class="payment-select">
+                                        <option value="COD" selected>COD</option>
+                                        <option value="CBD">CBD</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+
+                <!-- Summary Bar (Mobile Only) -->
+                <div id="summary-bar" class="summary-bar">
+                    <div class="summary-bar-content">
+                        <div class="summary-bar-main">
+                            <div>
+                                <span class="summary-bar-label">Total Tagihan (Nett)</span>
+                                <div id="summary-bar-total" class="summary-bar-total">Rp 0</div>
+                            </div>
+                            <span class="summary-bar-arrow">▲</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom Navigation Tabs -->
+                <nav class="bottom-nav">
+                    <button class="nav-tab active" data-tab="tab-simulasi">
+                        <span class="nav-icon">🛒</span>
+                        <span class="nav-label">Order</span>
+                    </button>
+                    <button class="nav-tab" data-tab="tab-promosi">
+                        <span class="nav-icon">🎁</span>
+                        <span class="nav-label">Promosi</span>
+                    </button>
+                    <button class="nav-tab" data-tab="tab-kpi">
+                        <span class="nav-icon">📊</span>
+                        <span class="nav-label">KPI</span>
+                    </button>
+                </nav>
+            </main>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+    
+    <script>
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(registration => console.log('SW registered'))
+                    .catch(error => console.log('SW registration failed'));
+            });
+        }
+    </script>
+
+    <!-- Modal Detail Harga -->
+    <div id="price-detail-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" id="close-price-modal">&times;</span>
+            <div class="modal-header-success">
+                <h3 id="price-modal-title">Rincian Harga</h3>
+            </div>
+            <div id="price-modal-details">
+                <!-- Detail harga akan diisi oleh JavaScript -->
+            </div>
+            <button id="price-modal-close-btn" class="btn btn-secondary" style="margin-top: 20px; width: 100%;">Tutup</button>
+        </div>
+    </div>
+</body>
+</html>
+

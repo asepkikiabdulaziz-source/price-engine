@@ -1,0 +1,5 @@
+loyalty_class_code,zone_codes,region_codes,depo_codes,target_monthly,cashback_percentage,priority
+A,all,all,all,50000000,1.0,0
+B,all,all,all,25000000,0.5,0
+C,all,all,all,10000000,0.25,0
+

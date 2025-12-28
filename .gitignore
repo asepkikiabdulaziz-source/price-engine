@@ -1,0 +1,27 @@
+# Environment variables
+env.js
+.env
+.env.local
+.env.*.local
+
+# Node modules (if using npm)
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build outputs
+dist/
+build/
+

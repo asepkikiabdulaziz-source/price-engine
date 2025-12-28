@@ -1,0 +1,9 @@
+promo_id,description,principal,trigger,disc
+disc-reg-01,"Diskon Reguler KSNI , NNI, MEIJI Nasional","KSNI, NNI, MEIJI",1000000,0.05
+disc-reg-01,"Diskon Reguler KSNI , NNI, MEIJI Nasional","KSNI, NNI, MEIJI",2000000,0.10
+disc-reg-01,"Diskon Reguler KSNI , NNI, MEIJI Nasional","KSNI, NNI, MEIJI",3000000,0.15
+disc-reg-02,"Diskon Reguler KSNI , NNI, MEIJI Area Khusus","KSNI, NNI, MEIJI",2000000,0.05
+disc-reg-02,"Diskon Reguler KSNI , NNI, MEIJI Area Khusus","KSNI, NNI, MEIJI",3000000,0.10
+disc-reg-02,"Diskon Reguler KSNI , NNI, MEIJI Area Khusus","KSNI, NNI, MEIJI",5000000,0.15
+disc-reg-03,Diskon Reguler SIMBA Nasional,SIMBA,300000,0.05
+disc-reg-03,Diskon Reguler SIMBA Nasional,SIMBA,500000,0.15
