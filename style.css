@@ -327,6 +327,282 @@ body {
     border-color: #ccc;
 }
 
+/* Upselling Strata Box */
+.upsell-strata-box {
+    margin-top: 15px;
+    padding: 12px;
+    background: #e8f5e9;
+    border-left: 4px solid #4caf50;
+    border-radius: 4px;
+}
+
+.upsell-strata-box strong {
+    color: #2e7d32;
+}
+
+/* Upselling Badge di Header */
+.upsell-badge-header {
+    transition: all 0.3s;
+}
+
+.upsell-badge-header:hover {
+    transform: scale(1.1);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+/* Sticky Upselling Box */
+.upsell-strata-sticky {
+    transition: all 0.3s;
+}
+
+/* Upselling Badge di Product Item (Kecil & Halus) */
+.upsell-item-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 8px;
+    padding: 2px 6px;
+    background: linear-gradient(135deg, #fff3cd 0%, #ffe69c 100%);
+    border: 1px solid #ffc107;
+    border-radius: 10px;
+    font-size: 0.7em;
+    color: #856404;
+    font-weight: 500;
+    cursor: help;
+    transition: all 0.2s ease;
+    vertical-align: middle;
+    line-height: 1.2;
+}
+
+.upsell-item-badge:hover {
+    background: linear-gradient(135deg, #ffe69c 0%, #ffc107 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(255, 193, 7, 0.3);
+}
+
+.upsell-badge-icon {
+    font-size: 0.85em;
+    opacity: 0.8;
+}
+
+.upsell-badge-text {
+    white-space: nowrap;
+}
+
+/* Upselling Badge 1 Baris Informatif di Setiap Produk */
+.upsell-item-badge-single-line {
+    display: block;
+    margin: 6px 0;
+    padding: 6px 8px;
+    background: linear-gradient(135deg, #fff3cd 0%, #ffe69c 100%);
+    border-left: 3px solid #ffc107;
+    border-radius: 4px;
+    font-size: 0.75em;
+    color: #856404;
+    line-height: 1.4;
+    transition: all 0.2s ease;
+}
+
+.upsell-item-badge-single-line:hover {
+    background: linear-gradient(135deg, #ffe69c 0%, #ffc107 100%);
+    box-shadow: 0 1px 3px rgba(255, 193, 7, 0.3);
+}
+
+.upsell-item-badge-single-line strong {
+    color: #d97706;
+    font-weight: 600;
+}
+
+/* Upselling Badge untuk Bundle Promo */
+.upsell-bundle-badge {
+    display: block;
+    margin: 6px 0;
+    padding: 6px 8px;
+    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    border-left: 3px solid #2196f3;
+    border-radius: 4px;
+    font-size: 0.75em;
+    color: #1565c0;
+    line-height: 1.4;
+    transition: all 0.2s ease;
+}
+
+.upsell-bundle-badge:hover {
+    background: linear-gradient(135deg, #bbdefb 0%, #90caf9 100%);
+    box-shadow: 0 1px 3px rgba(33, 150, 243, 0.3);
+}
+
+.upsell-bundle-badge strong {
+    color: #0d47a1;
+    font-weight: 600;
+}
+
+/* Upselling Badge untuk Principal Discount di Keranjang */
+.upsell-principal-badge {
+    background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+    color: #333;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85em;
+    margin: 8px 0;
+    border-left: 3px solid #ffc107;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.upsell-principal-badge:hover {
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
+}
+
+.upsell-principal-badge .upsell-icon {
+    margin-right: 6px;
+    font-size: 1em;
+}
+
+/* Upselling Badge untuk Invoice Discount di Keranjang */
+.upsell-invoice-badge {
+    background: linear-gradient(135deg, #28a745 0%, #5cb85c 100%);
+    color: white;
+    padding: 10px 15px;
+    border-radius: 6px;
+    font-size: 0.9em;
+    margin: 10px 0;
+    border-left: 3px solid #1e7e34;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    font-weight: 500;
+}
+
+.upsell-invoice-badge:hover {
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
+}
+
+.upsell-invoice-badge .upsell-icon {
+    margin-right: 6px;
+    font-size: 1em;
+}
+
+/* Upselling Info Direct (untuk Principal & Invoice - tanpa header) */
+.upsell-info-direct {
+    margin: 6px 0;
+    padding: 8px 12px;
+    background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+    border-left: 3px solid #ffc107;
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: #856404;
+    line-height: 1.5;
+}
+
+.upsell-info-direct .upsell-icon {
+    margin-right: 6px;
+    font-size: 1em;
+}
+
+.upsell-info-direct strong {
+    color: #007bff;
+    font-weight: 600;
+}
+
+/* Upselling Section di Calculation Display */
+.upsell-section {
+    margin: 8px 0;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #f8f9fa;
+    overflow: hidden;
+}
+
+.upsell-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+    user-select: none;
+    transition: background 0.2s ease;
+}
+
+.upsell-section-header[onclick] {
+    cursor: pointer;
+}
+
+.upsell-section-header[onclick]:hover {
+    background: linear-gradient(135deg, #ffeaa7 0%, #fdcb6e 100%);
+}
+
+.upsell-section-title {
+    font-size: 0.9em;
+    font-weight: 600;
+    color: #856404;
+}
+
+.upsell-section-toggle {
+    font-size: 0.8em;
+    color: #856404;
+    transition: transform 0.2s ease;
+}
+
+.upsell-section-content {
+    padding: 10px 12px;
+    background: white;
+    border-top: 1px solid #e0e0e0;
+}
+
+.upsell-recommendation-item {
+    padding: 8px 0;
+    font-size: 0.85em;
+    color: #333;
+    line-height: 1.5;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.upsell-recommendation-item:last-child {
+    border-bottom: none;
+}
+
+.upsell-recommendation-item strong {
+    color: #007bff;
+    font-weight: 600;
+}
+
+/* Collapse Toggle di Calc Row */
+.calc-row .collapse-toggle {
+    cursor: pointer;
+    color: #856404;
+    font-size: 0.9em;
+    margin-right: 8px;
+    user-select: none;
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+}
+
+.calc-row .collapse-toggle:hover {
+    color: #6c5500;
+}
+
+/* Upsell Collapse Content (di bawah calc-row) */
+.upsell-collapse-content {
+    margin: 6px 0 6px 20px;
+    padding: 10px 12px;
+    background: white;
+    border-left: 3px solid #ffc107;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+
+.upsell-collapse-content .upsell-recommendation-item {
+    padding: 6px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.upsell-collapse-content .upsell-recommendation-item:last-child {
+    border-bottom: none;
+}
+
+.upsell-collapse-content .upsell-recommendation-item strong {
+    color: #007bff;
+    font-weight: 600;
+}
+
 /* Product Groups */
 .product-groups {
     display: flex;
@@ -337,13 +613,13 @@ body {
 /* Accordion Styles */
 .accordion-item {
     background: white;
-    border-radius: 0;
+    border-radius: 2;
     border-top: 1px solid #e9ecef;
     border-bottom: 1px solid #e9ecef;
     border-left: none;
     border-right: none;
-    margin-bottom: 0;
-    overflow: hidden;
+    margin-bottom: 0px;
+    overflow: visible; /* Changed from hidden to visible to allow sticky positioning */
     transition: none;
 }
 
@@ -388,6 +664,7 @@ body {
     background: white;
     border: none;
     box-shadow: none;
+    overflow: visible; /* Allow sticky positioning */
 }
 
 .accordion-content.expanded {
@@ -522,7 +799,7 @@ body {
     border-bottom: 1px solid #e9ecef;
     border-left: none;
     border-right: none;
-    margin-bottom: 0;
+    margin-bottom: 10px;
     overflow: hidden;
 }
 
@@ -968,27 +1245,39 @@ body {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    width: 100%;
 }
 
 .cart-item-name-row {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 10px;
+    gap: 0;
+    width: 100%;
+    padding-right: 0;
 }
 
 .cart-item-controls {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-left: auto;
+    gap: 6px;
+    justify-content: flex-end;
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding-left: 16px;
+    border-left: 1px solid #e0e0e0;
+    min-width: max-content;
 }
 
 .cart-item-name {
-    flex: 1;
     font-weight: 600;
     color: #333;
     font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .cart-btn-remove {
@@ -1080,13 +1369,27 @@ body {
 
 .calc-row {
     display: flex;
-    justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
     background: #f8f9fa;
     border-radius: 4px;
     font-size: 0.9rem;
     border-left: 3px solid transparent;
+    gap: 8px;
+}
+
+.calc-row .collapse-toggle {
+    flex-shrink: 0;
+}
+
+.calc-row > span:not(.amount):not(.collapse-toggle) {
+    flex: 0 1 auto;
+    text-align: left;
+}
+
+.calc-row .amount {
+    margin-left: auto;
+    flex-shrink: 0;
 }
 
 .calc-row:not(.total-row):not(.payment-row):hover {

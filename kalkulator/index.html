@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Nabati Cuan</title>
+    <link rel="stylesheet" href="style.css"/>
+    
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#007bff"/>
+</head>
+<body>
+    <div id="loading">Memuat data master...</div>
+
+    <div id="login-container" class="app-page">
+        <div class="login-box">
+            <h2>NabatiCuan</h2>
+            <div id="login-error-message" class="error-message"></div>
+            <div id="login-loading" class="loading-spinner" style="display: none;"></div>
+            <select id="login-region">
+                <option value="">1. Pilih Region...</option>
+            </select>
+            <select id="login-depo">
+                <option value="">Pilih region dulu</option>
+            </select>
+            <input type="text" id="login-id" placeholder="KD Sales">
+            <input type="password" id="login-password" placeholder="Password">
+            <button id="login-button">Login</button>
+        </div>
+    </div>
+    
+    <div id="main-app-container" style="display: none;">
+    
+        <header class="app-header">
+            <div class="user-info">
+                 <strong  id="user-nama">...</strong>
+            </div>
+            <button id="main-logout-button" class="btn-danger">Logout</button>
+        </header>
+
+        <div class="app-controls">
+            
+            <div id="simulation-panel">
+                <h4>Mode Simulasi Admin</h4>
+                <select id="sim-zona"></select>
+                <select id="sim-region"></select>
+                <select id="sim-depo"></select>
+                <select id="sim-type-user"></select> 
+                
+            </div>
+            <select id="tipeToko">
+             <option value="">-Pilih type toko-</option>
+             <option value="GROSIR">GROSIR</option>
+             <option value="RETAIL">RETAIL</option>
+            </select>
+
+            <select id="kelasPelanggan">
+                <option value="">-- Pilih Kelas --</option>
+            </select>
+            
+        </div>
+        
+        <main class="kalkulator-main">
+    
+            <div class="tab-controls">
+                <button id="tab-produk-btn" class="tab-button active">🛒 Simulasi Order</button>
+                <button id="tab-promo-btn" class="tab-button">📊 Promosi</button>
+            </div>
+        
+            <div class="tab-content-wrapper">
+                
+                <div id="tab-produk-content" class="tab-content active">
+                    <div class="product-column">
+                        
+                        <div id="menuContainer">
+                        </div>
+                        
+                    </div>
+                </div>
+                
+                <div id="tab-promo-content" class="tab-content" style="display: none;">
+                    <div class="promo-column">
+                        <h3 class="section-title">Detail Program Promosi</h3>
+                        
+                        <div id="globalPromoContainer" style="margin-bottom: 25px;">
+                        </div>
+        
+                        <div id="codPromoContainer" style="margin-bottom: 25px;">
+                        </div>
+        
+                        <div id="loyaltyPromoContainer" style="margin-bottom: 25px;">
+                        </div>
+                        
+                        <div id="strataSummaryContainer" style="margin-bottom: 25px;">
+                        </div>
+                    </div>
+                </div>
+                
+            </div>
+            
+            <aside class="simulasi-order">
+                <button id="close-summary-btn" class="close-summary">&times;</button>
+                <h2>Ringkasan Pesanan</h2>
+                
+                <div id="daftarKeranjang">
+                    <p style="text-align: center; color: #666;">Keranjang masih kosong.</p>
+                </div>
+                
+            </aside>
+        </main>
+        </div> 
+    
+    <div id="role-details-modal" class="modal">
+      <div class="modal-content">
+        <span class="close-modal" id="close-modal-button">&times;</span>
+        <div class="modal-header-success">
+            <h3 id="modalTitle">Login Berhasil!</h3>
+        </div>
+        <div id="modal-role-details">
+        </div>
+        <button id="modal-proceed-button" class="btn-danger">OK</button>
+      </div>
+    </div>
+
+    <div id="summary-toggle-bar" class="summary-bar">
+        <div class="summary-bar-content">
+            <div class="summary-bar-main">
+                <div>
+                    <span class="summary-bar-label">Total Tagihan (Nett)</span>
+                    <div id="summary-bar-total" class="summary-bar-total">Rp 0</div>
+                </div>
+                <span class="summary-bar-arrow">▲</span>
+            </div>
+        </div>
+    </div>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    
+    
+    <script src="js/helpers.js?v=20251112"></script> 
+    <script src="js/store.js?v=20251112"></script> 
+    <script src="js/calculator.js?v=20251112"></script> 
+    <script src="app.js?v=20251112"></script> 
+    </body>
+</html>

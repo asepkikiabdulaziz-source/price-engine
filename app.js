@@ -1593,6 +1593,1547 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
 }
 
 /**
+ * Get upselling recommendation for group promo (strata)
+ * @param {string} groupCode - Product group code
+ * @param {Map} cart - Cart items
+ * @param {Map} productDataMap - Product data map
+ * @param {Map} productGroupMap - Product group map
+ * @param {Array} groupPromos - Array of group promo headers
+ * @param {Array} groupPromoTiers - Array of group promo tiers
+ * @param {string} userZona - User's zona
+ * @param {string} userRegion - User's region
+ * @param {string} userDepo - User's depo
+ * @param {Function} isPromoAvailable - Function to check promo availability
+ * @param {Array} promoAvailabilityRules - Promo availability rules
+ * @param {string} storeType - Store type
+ * @param {Array} productGroupAvailabilityRules - Product group availability rules
+ * @param {Function} isProductGroupAvailable - Function to check group availability
+ * @param {Array} allProducts - All products array (for variant suggestions)
+ * @returns {Object|null} Upselling recommendation or null
+ */
+function getStrataUpsellingRecommendation(
+    groupCode,
+    cart,
+    productDataMap,
+    productGroupMap,
+    groupPromos,
+    groupPromoTiers,
+    userZona,
+    userRegion,
+    userDepo,
+    isPromoAvailable,
+    promoAvailabilityRules,
+    storeType,
+    productGroupAvailabilityRules,
+    isProductGroupAvailable,
+    allProducts
+) {
+    console.log(`🔍 [Upselling] Checking group: ${groupCode}`, {
+        cartSize: cart?.size || 0,
+        groupPromosCount: groupPromos?.length || 0,
+        groupPromoTiersCount: groupPromoTiers?.length || 0
+    });
+    
+    // 1. Check if group is available
+    if (isProductGroupAvailable && productGroupAvailabilityRules) {
+        const isAvailable = isProductGroupAvailable(
+            groupCode,
+            productGroupAvailabilityRules,
+            userZona,
+            userRegion,
+            userDepo
+        );
+        if (!isAvailable) {
+            console.log(`  ❌ Group ${groupCode} not available for user area`);
+            return null;
+        }
+    }
+    
+    // 2. Find promo for this group
+    const promosForGroup = groupPromos.filter(promo => {
+        const promoGroupCode = (promo.product_group_code || '').toUpperCase().trim();
+        const targetGroupCode = (groupCode || '').toUpperCase().trim();
+        return promoGroupCode === targetGroupCode;
+    });
+    
+    if (promosForGroup.length === 0) {
+        console.log(`  ❌ No promo found for group ${groupCode}`);
+        return null;
+    }
+    
+    console.log(`  ✅ Found ${promosForGroup.length} promo(s) for group ${groupCode}`);
+    
+    // 3. Filter available promos
+    const availablePromos = promosForGroup.filter(promo => {
+        return isPromoAvailable(
+            promo.promo_id,
+            'strata',
+            promoAvailabilityRules,
+            storeType,
+            userZona,
+            userRegion,
+            userDepo
+        );
+    });
+    
+    if (availablePromos.length === 0) {
+        console.log(`  ❌ No available promo for group ${groupCode} after filtering`);
+        return null;
+    }
+    
+    console.log(`  ✅ Found ${availablePromos.length} available promo(s) for group ${groupCode}`);
+    
+    // Use first available promo (or merge logic if multiple)
+    const promo = availablePromos[0];
+    
+    // 4. Get all tiers for this promo, sorted by min_qty ascending
+    const tiers = groupPromoTiers
+        .filter(tier => tier.promo_id === promo.promo_id)
+        .sort((a, b) => {
+            const minA = parseFloat(a.min_qty) || 0;
+            const minB = parseFloat(b.min_qty) || 0;
+            return minA - minB;
+        });
+    
+    if (tiers.length === 0) return null;
+    
+    // 5. Calculate current quantity for this group
+    const tierUnit = promo.tier_unit || 'unit_1';
+    let currentQty = 0;
+    const itemsInGroup = [];
+    
+    cart.forEach((item, productId) => {
+        const product = productDataMap.get(productId);
+        if (!product) return;
+        
+        const groupInfo = productGroupMap.get(productId);
+        if (!groupInfo || groupInfo.code !== groupCode) return;
+        
+        itemsInGroup.push({ item, product });
+        
+        const qtyKrt = item.quantities?.krt || item.quantities?.unit_1 || 0;
+        const qtyBox = item.quantities?.box || item.quantities?.unit_2 || 0;
+        const ratio = product.ratio_unit_2_per_unit_1 || 1;
+        
+        if (tierUnit === 'unit_1') {
+            const fractionalKrt = ratio > 0 ? (qtyBox / ratio) : 0;
+            currentQty += qtyKrt + fractionalKrt;
+        } else if (tierUnit === 'unit_2') {
+            const totalBoxes = (qtyKrt * ratio) + qtyBox;
+            currentQty += totalBoxes;
+        }
+    });
+    
+    if (itemsInGroup.length === 0) {
+        console.log(`  ❌ No items in cart for group ${groupCode}`);
+        return null;
+    }
+    
+    console.log(`  ✅ Found ${itemsInGroup.length} item(s) in cart for group ${groupCode}, currentQty: ${currentQty}`);
+    
+    // 6. Find current active tier
+    const sortedTiers = [...tiers].sort((a, b) => {
+        const minA = parseFloat(a.min_qty) || 0;
+        const minB = parseFloat(b.min_qty) || 0;
+        return minA - minB;
+    });
+    
+    let currentTier = null;
+    for (let i = 0; i < sortedTiers.length; i++) {
+        const tier = sortedTiers[i];
+        const minQty = parseFloat(tier.min_qty) || 0;
+        const nextTier = sortedTiers[i + 1];
+        const nextMinQty = nextTier ? parseFloat(nextTier.min_qty) || Infinity : Infinity;
+        
+        if (currentQty >= minQty && currentQty < nextMinQty) {
+            currentTier = tier;
+            break;
+        }
+    }
+    
+    if (!currentTier) {
+        console.log(`  ❌ No current tier found for group ${groupCode} with qty ${currentQty}`);
+        return null;
+    }
+    
+    const currentDiscountPerUnit = parseFloat(currentTier.discount_per_unit) || 0;
+    console.log(`  ✅ Current tier: min_qty=${currentTier.min_qty}, discount=${currentDiscountPerUnit}`);
+    
+    // 7. Find next tier with higher discount
+    const betterTiers = sortedTiers.filter(tier => {
+        const tierDiscount = parseFloat(tier.discount_per_unit) || 0;
+        return tierDiscount > currentDiscountPerUnit;
+    });
+    
+    if (betterTiers.length === 0) {
+        console.log(`  ❌ No better tier found for group ${groupCode} (current discount: ${currentDiscountPerUnit})`);
+        return null;
+    }
+    
+    // 8. Get nearest tier (lowest min_qty among better tiers)
+    const nextTier = betterTiers[0];
+    const nextMinQty = parseFloat(nextTier.min_qty) || 0;
+    const nextDiscountPerUnit = parseFloat(nextTier.discount_per_unit) || 0;
+    
+    console.log(`  ✅ Next tier: min_qty=${nextMinQty}, discount=${nextDiscountPerUnit}`);
+    
+    // 9. Calculate gap
+    const gapQty = Math.max(0, nextMinQty - currentQty);
+    
+    if (gapQty <= 0) {
+        console.log(`  ❌ Gap qty is 0 or negative for group ${groupCode}`);
+        return null;
+    }
+    
+    console.log(`  ✅ Upselling recommendation found for group ${groupCode}: gap=${gapQty}, nextDiscount=${nextDiscountPerUnit}`);
+    
+    // 10. Check variant requirement
+    const tierMode = promo.tier_mode || 'non mix';
+    let variantGap = 0;
+    let suggestedVariants = [];
+    
+    if (tierMode === 'mix' && nextTier.variant_count) {
+        const requiredVariants = parseInt(nextTier.variant_count) || 0;
+        const currentVariants = new Set(itemsInGroup.map(({ product }) => product.code));
+        const currentVariantCount = currentVariants.size;
+        
+        variantGap = Math.max(0, requiredVariants - currentVariantCount);
+        
+        // Get suggested variants (products in group that are not in cart)
+        if (variantGap > 0 && allProducts) {
+            suggestedVariants = allProducts
+                .filter(p => {
+                    const groupInfo = productGroupMap.get(p.code);
+                    return groupInfo && groupInfo.code === groupCode && !currentVariants.has(p.code);
+                })
+                .slice(0, 3) // Max 3 suggestions
+                .map(p => p.code);
+        }
+    }
+    
+    return {
+        groupCode: groupCode,
+        groupName: productGroupMap.get(itemsInGroup[0].product.code)?.name || groupCode,
+        currentDiscountPerUnit: currentDiscountPerUnit,
+        nextDiscountPerUnit: nextDiscountPerUnit,
+        nextMinQty: nextMinQty,
+        gapQty: gapQty,
+        tierUnit: tierUnit,
+        variantGap: variantGap,
+        suggestedVariants: suggestedVariants
+    };
+}
+
+/**
+ * Get bundle promo upselling recommendation
+ * Returns recommendation for adding quantity to get bundle promo discount
+ * 
+ * @param {string} promoId - Bundle promo ID
+ * @param {Map} cart - Cart items
+ * @param {Map} productDataMap - Product data map
+ * @param {Map} promoStructureMap - Promo structure map (promo_id -> { buckets: Map<bucketId, productIds[]> })
+ * @param {Array} bundlePromos - Array of bundle promo headers
+ * @param {Array} bundlePromoGroups - Array of bundle promo groups
+ * @param {Array} promoAvailabilityRules - Array of promo availability rules
+ * @param {string} storeType - Store type ('grosir' or 'retail')
+ * @param {string} userZona - User's zona
+ * @param {string} userRegion - User's region
+ * @param {string} userDepo - User's depo
+ * @param {Function} isPromoAvailable - Function to check if promo is available
+ * @returns {Object|null} Upselling recommendation or null
+ */
+function getBundleUpsellingRecommendation(
+    promoId,
+    cart,
+    productDataMap,
+    promoStructureMap,
+    bundlePromos,
+    bundlePromoGroups,
+    promoAvailabilityRules,
+    storeType,
+    userZona,
+    userRegion,
+    userDepo,
+    isPromoAvailable
+) {
+    console.log(`🔍 [Bundle Upselling] Checking promo: ${promoId}`, {
+        cartSize: cart?.size || 0,
+        bundlePromosCount: bundlePromos?.length || 0
+    });
+    
+    // 1. Check if promo exists and is available
+    const promo = bundlePromos.find(p => p.promo_id === promoId);
+    if (!promo) {
+        console.log(`  ❌ Promo ${promoId} not found`);
+        return null;
+    }
+    
+    const isAvailable = isPromoAvailable(
+        promo.promo_id,
+        'bundling',
+        promoAvailabilityRules,
+        storeType,
+        userZona,
+        userRegion,
+        userDepo
+    );
+    
+    if (!isAvailable) {
+        console.log(`  ❌ Promo ${promoId} not available for user area`);
+        return null;
+    }
+    
+    // 2. Get promo structure
+    const promoData = promoStructureMap.get(promoId);
+    if (!promoData || !promoData.buckets) {
+        console.log(`  ❌ No buckets found for promo ${promoId}`);
+        return null;
+    }
+    
+    // 3. Get groups for this promo
+    const groups = bundlePromoGroups.filter(g => g.promo_id === promoId);
+    if (groups.length === 0) {
+        console.log(`  ❌ No groups found for promo ${promoId}`);
+        return null;
+    }
+    
+    // 4. Calculate current packages per bucket
+    const bucketInfo = [];
+    
+    groups.forEach(group => {
+        const bucketId = group.bucket_id;
+        const requiredQty = parseFloat(group.total_quantity) || 0;
+        const unit = group.unit || 'unit_1';
+        
+        if (requiredQty <= 0) {
+            return;
+        }
+        
+        // Get products in this bucket
+        const productsInBucket = promoData.buckets.get(bucketId) || [];
+        if (productsInBucket.length === 0) {
+            return;
+        }
+        
+        // Calculate total quantity of products in this bucket from cart
+        let totalQtyInBucket = 0;
+        
+        productsInBucket.forEach(productId => {
+            const cartItem = cart.get(productId);
+            if (!cartItem) return;
+            
+            const product = productDataMap.get(productId);
+            if (!product) return;
+            
+            const qtyKrt = cartItem.quantities?.krt || cartItem.quantities?.unit_1 || 0;
+            const qtyBox = cartItem.quantities?.box || cartItem.quantities?.unit_2 || 0;
+            const ratio = product.ratio_unit_2_per_unit_1 || 1;
+            
+            if (unit === 'unit_1') {
+                const fractionalKrt = ratio > 0 ? (qtyBox / ratio) : 0;
+                totalQtyInBucket += qtyKrt + fractionalKrt;
+            } else if (unit === 'unit_2') {
+                const totalBoxes = (qtyKrt * ratio) + qtyBox;
+                totalQtyInBucket += totalBoxes;
+            } else {
+                const fractionalKrt = ratio > 0 ? (qtyBox / ratio) : 0;
+                totalQtyInBucket += qtyKrt + fractionalKrt;
+            }
+        });
+        
+        // Calculate how many packages can be formed from this bucket
+        const packages = Math.floor(totalQtyInBucket / requiredQty);
+        const remainder = totalQtyInBucket % requiredQty;
+        // Gap to next package: if remainder is 0, we need full requiredQty for next package
+        // Otherwise, we need (requiredQty - remainder)
+        const gapToNextPackage = remainder === 0 ? requiredQty : (requiredQty - remainder);
+        
+        bucketInfo.push({
+            bucketId: bucketId,
+            requiredQty: requiredQty,
+            unit: unit,
+            currentQty: totalQtyInBucket,
+            packages: packages,
+            gapToNextPackage: gapToNextPackage,
+            productsInBucket: productsInBucket
+        });
+    });
+    
+    if (bucketInfo.length === 0) {
+        console.log(`  ❌ No valid buckets for promo ${promoId}`);
+        return null;
+    }
+    
+    // 5. Calculate current complete packages berdasarkan jumlah qty di cart
+    const packagesPerBucket = bucketInfo.map(b => b.packages);
+    const currentPackages = Math.min(...packagesPerBucket);
+    const maxPackagesPerBucket = Math.max(...packagesPerBucket);
+    
+    // 6. Check max_packages limit
+    const maxPackages = promo.max_packages ? parseFloat(promo.max_packages) : null;
+    const discountPerPackage = parseFloat(promo.discount_per_package) || 0;
+    
+    // 7. Determine upselling scenario
+    let targetPackages = currentPackages + 1;
+    if (maxPackages && targetPackages > maxPackages) {
+        console.log(`  ❌ Already at max packages (${maxPackages}) for promo ${promoId}`);
+        return null;
+    }
+    
+    // 8. Tentukan bucket yang "lebih" dan bucket yang "kurang" berdasarkan jumlah qty
+    // Bucket yang "lebih" = bucket dengan packages lebih banyak (jumlah qty lebih besar)
+    // Bucket yang "kurang" = bucket dengan packages lebih sedikit (jumlah qty lebih kecil)
+    // Rekomendasi muncul di bucket yang "lebih" untuk menambahkan bucket yang "kurang"
+    
+    // OPSI 1: Tidak ada rekomendasi jika semua bucket sudah sama packages-nya (rule sudah terpenuhi)
+    // Rekomendasi hanya muncul jika ada bucket yang "lebih" jelas (packages berbeda)
+    if (maxPackagesPerBucket === currentPackages) {
+        console.log(`  ℹ️ All buckets have same packages (${currentPackages}) - rule already fulfilled, no recommendation needed`);
+        return null;
+    }
+    
+    let sourceBucket = null; // Bucket yang akan menampilkan rekomendasi (yang lebih)
+    let targetBucket = null; // Bucket yang perlu ditambahkan (yang kurang)
+    
+    // Ada bucket yang lebih banyak dari yang lain (berdasarkan jumlah qty)
+    // Rekomendasi muncul di bucket yang lebih untuk menambahkan bucket yang kurang
+    
+    // Cari bucket dengan packages paling banyak (source bucket - yang lebih)
+    sourceBucket = bucketInfo.find(b => b.packages === maxPackagesPerBucket);
+    
+    // Cari bucket dengan packages paling sedikit atau gap terbesar (target bucket - yang kurang)
+    const bucketsWithLessPackages = bucketInfo.filter(b => b.packages === currentPackages);
+    targetBucket = bucketsWithLessPackages.reduce((min, bucket) => {
+        if (!min || bucket.gapToNextPackage < min.gapToNextPackage) {
+            return bucket;
+        }
+        return min;
+    });
+    
+    console.log(`  📊 Bucket comparison: maxPackages=${maxPackagesPerBucket}, minPackages=${currentPackages}`);
+    console.log(`  📍 Source bucket (lebih): ${sourceBucket.bucketId} (${sourceBucket.packages} packages)`);
+    console.log(`  📍 Target bucket (kurang): ${targetBucket.bucketId} (${targetBucket.packages} packages, gap=${targetBucket.gapToNextPackage})`);
+    
+    if (!sourceBucket || !targetBucket || sourceBucket.bucketId === targetBucket.bucketId) {
+        console.log(`  ❌ No valid source/target bucket found for promo ${promoId}`);
+        return null;
+    }
+    
+    if (targetBucket.gapToNextPackage <= 0) {
+        console.log(`  ❌ No gap found for promo ${promoId}`);
+        return null;
+    }
+    
+    // 9. Determine if this is for first package or next package
+    const isFirstPackage = currentPackages === 0;
+    const gapQtyFormatted = targetBucket.gapToNextPackage.toFixed(1);
+    const unitLabel = targetBucket.unit === 'unit_1' ? 'krt' : 'box';
+    const discountFormatted = Math.round(discountPerPackage).toLocaleString('id-ID');
+    
+    const message = isFirstPackage 
+        ? `Tambahkan bucket ${targetBucket.bucketId} sebanyak ${gapQtyFormatted} ${unitLabel} untuk mendapat potongan bundling sebesar ${discountFormatted}`
+        : `Tambahkan bucket ${targetBucket.bucketId} sebanyak ${gapQtyFormatted} ${unitLabel} untuk mendapat 1 paket bundle lagi (potongan tambahan ${discountFormatted})`;
+    
+    console.log(`  ✅ Upselling recommendation found for promo ${promoId}: ${message}`);
+    
+    return {
+        promoId: promoId,
+        promoName: promo.description || promoId,
+        currentPackages: currentPackages,
+        targetPackages: targetPackages,
+        gapQty: targetBucket.gapToNextPackage,
+        gapUnit: targetBucket.unit === 'unit_1' ? 'krt' : 'box',
+        sourceBucketId: sourceBucket.bucketId, // Bucket yang menampilkan rekomendasi (yang lebih)
+        targetBucketId: targetBucket.bucketId, // Bucket yang perlu ditambahkan (yang kurang)
+        discountPerPackage: discountPerPackage,
+        isFirstPackage: isFirstPackage,
+        message: message
+    };
+}
+
+/**
+ * Setup sticky behavior untuk upselling box
+ * Box akan tetap terlihat saat scroll di dalam kawasan accordion content
+ */
+function setupStickyUpselling(stickyElement, accordionItem, accordionContent) {
+    if (!stickyElement || !accordionItem || !accordionContent) return;
+    
+    let isSticky = false;
+    let rafId = null;
+    
+    const handleScroll = () => {
+        if (rafId) {
+            cancelAnimationFrame(rafId);
+        }
+        
+        rafId = requestAnimationFrame(() => {
+            // Cek apakah accordion content sedang expanded
+            if (!accordionContent.classList.contains('expanded')) {
+                if (isSticky) {
+                    stickyElement.style.position = 'relative';
+                    stickyElement.style.top = 'auto';
+                    stickyElement.style.left = 'auto';
+                    stickyElement.style.width = 'auto';
+                    stickyElement.style.zIndex = 'auto';
+                    isSticky = false;
+                }
+                return;
+            }
+            
+            const accordionHeader = accordionItem.querySelector('.accordion-header');
+            const headerHeight = accordionHeader?.offsetHeight || 0;
+            const accordionRect = accordionItem.getBoundingClientRect();
+            const stickyRect = stickyElement.getBoundingClientRect();
+            const contentRect = accordionContent.getBoundingClientRect();
+            
+            // Cek apakah sticky element sudah keluar dari viewport atas
+            // dan masih dalam kawasan accordion content
+            const shouldBeSticky = stickyRect.top < headerHeight && 
+                                   contentRect.bottom > headerHeight + stickyRect.height &&
+                                   accordionRect.top < headerHeight;
+            
+            if (shouldBeSticky) {
+                if (!isSticky) {
+                    stickyElement.style.position = 'fixed';
+                    stickyElement.style.top = headerHeight + 'px';
+                    stickyElement.style.left = accordionRect.left + 'px';
+                    stickyElement.style.width = accordionRect.width + 'px';
+                    stickyElement.style.zIndex = '1000';
+                    stickyElement.style.marginLeft = '0';
+                    stickyElement.style.marginRight = '0';
+                    isSticky = true;
+                } else {
+                    // Update position jika accordion item bergeser (responsive)
+                    stickyElement.style.left = accordionRect.left + 'px';
+                    stickyElement.style.width = accordionRect.width + 'px';
+                }
+            } else {
+                if (isSticky) {
+                    stickyElement.style.position = 'relative';
+                    stickyElement.style.top = 'auto';
+                    stickyElement.style.left = 'auto';
+                    stickyElement.style.width = 'auto';
+                    stickyElement.style.zIndex = 'auto';
+                    stickyElement.style.marginLeft = '';
+                    stickyElement.style.marginRight = '';
+                    isSticky = false;
+                }
+            }
+        });
+    };
+    
+    // Listen to scroll events
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('resize', handleScroll, { passive: true });
+    
+    // Initial check
+    handleScroll();
+    
+    // Store cleanup function
+    stickyElement._cleanupSticky = () => {
+        if (rafId) {
+            cancelAnimationFrame(rafId);
+        }
+        window.removeEventListener('scroll', handleScroll);
+        window.removeEventListener('resize', handleScroll);
+    };
+}
+
+/**
+ * Update upselling recommendations for all groups in product container
+ * Called after cart changes to refresh upselling display
+ */
+function updateUpsellingRecommendations() {
+    const productContainer = document.getElementById('product-groups');
+    if (!productContainer) return;
+    
+    // Find all accordion items (groups)
+    const accordionItems = productContainer.querySelectorAll('.accordion-item');
+    
+    accordionItems.forEach(accordionItem => {
+        // Find accordion content
+        const accordionContent = accordionItem.querySelector('.accordion-content');
+        if (!accordionContent) return;
+        
+        // Get group code from data attribute (set during renderProducts)
+        let groupCode = accordionItem.dataset.groupCode;
+        if (!groupCode) {
+            // Fallback: try to find from products in this accordion
+            const firstProduct = accordionContent.querySelector('.product-item');
+            if (firstProduct) {
+                const productId = firstProduct.dataset.productId;
+                const groupInfo = productGroupMap.get(productId);
+                if (groupInfo) {
+                    groupCode = groupInfo.code;
+                } else {
+                    return; // No group code found
+                }
+            } else {
+                return; // No products found
+            }
+        }
+        
+        console.log(`🔄 [Update Upselling] Checking group: ${groupCode}`);
+        
+        // Remove existing upselling elements
+        const existingUpsell = accordionContent.querySelector('.upsell-strata-box');
+        if (existingUpsell) {
+            existingUpsell.remove();
+        }
+        
+        // Remove badge from header
+        const existingBadge = accordionItem.querySelector('.upsell-badge-header');
+        if (existingBadge) {
+            existingBadge.remove();
+        }
+        
+        // Remove sticky box dan cleanup event listeners
+        const existingSticky = accordionContent.querySelector('.upsell-strata-sticky');
+        if (existingSticky) {
+            if (existingSticky._cleanupSticky) {
+                existingSticky._cleanupSticky();
+            }
+            existingSticky.remove();
+        }
+        
+        // Remove upselling badges dari semua product items di group ini
+        const productItems = accordionContent.querySelectorAll('.product-item');
+        productItems.forEach(item => {
+            // Hapus badge lama
+            const existingBadge = item.querySelector('.upsell-item-badge');
+            if (existingBadge) {
+                existingBadge.remove();
+            }
+            // Hapus badge baru (single-line)
+            const existingBadgeSingleLine = item.querySelector('.upsell-item-badge-single-line');
+            if (existingBadgeSingleLine) {
+                existingBadgeSingleLine.remove();
+            }
+        });
+        
+        // Get upselling recommendation
+        const storeTypeEl = document.getElementById('store-type');
+        const selectedStoreType = storeTypeEl ? storeTypeEl.value : 'grosir';
+        
+        const upsellingRec = getStrataUpsellingRecommendation(
+            groupCode,
+            cart,
+            productDataMap,
+            productGroupMap,
+            groupPromos,
+            groupPromoTiers,
+            currentUser?.zona || null,
+            currentUser?.region_name || null,
+            currentUser?.depo_id || null,
+            isPromoAvailable,
+            promoAvailabilityRules,
+            selectedStoreType,
+            productGroupAvailabilityRules,
+            isProductGroupAvailable,
+            Array.from(productDataMap.values())
+        );
+        
+        // Add upselling recommendation if available
+        if (upsellingRec) {
+            const unitLabel = upsellingRec.tierUnit === 'unit_1' ? 'krt' : 'box';
+            const formatCurrency = (amount) => {
+                const roundedAmount = Math.round(amount || 0);
+                return new Intl.NumberFormat('id-ID', {
+                    style: 'currency',
+                    currency: 'IDR',
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0
+                }).format(roundedAmount);
+            };
+            
+            // Tambahkan badge 1 baris ke setiap product item di group ini
+            productItems.forEach(productItem => {
+                const productId = productItem.getAttribute('data-product-id');
+                if (!productId) return;
+                
+                // Cek apakah product ini termasuk dalam group yang sama
+                const productGroupInfo = productGroupMap.get(productId);
+                if (!productGroupInfo || productGroupInfo.code !== groupCode) return;
+                
+                // Cari product-info untuk menambahkan badge
+                const productInfo = productItem.querySelector('.product-info');
+                if (!productInfo) return;
+                
+                // Format: "Potongan saat ini 2300 tambah 1 krt lagi untuk mendapat potongan 2750"
+                const currentDiscount = Math.round(upsellingRec.currentDiscountPerUnit || 0);
+                const nextDiscount = Math.round(upsellingRec.nextDiscountPerUnit || 0);
+                const gapQty = upsellingRec.gapQty.toFixed(1);
+                
+                // Buat badge 1 baris yang informatif
+                const badge = document.createElement('div');
+                badge.className = 'upsell-item-badge-single-line';
+                badge.innerHTML = `
+                    Potongan saat ini <strong>${currentDiscount.toLocaleString('id-ID')}</strong> 
+                    tambah <strong>${gapQty} ${unitLabel}</strong> lagi 
+                    untuk mendapat potongan <strong>${nextDiscount.toLocaleString('id-ID')}</strong>
+                `;
+                
+                // Pastikan tidak ada badge yang sudah ada sebelum menambahkan
+                const existingBadge = productItem.querySelector('.upsell-item-badge-single-line');
+                if (existingBadge) {
+                    existingBadge.remove();
+                }
+                
+                // Tambahkan badge setelah product-info (sebelum quantity-controls)
+                const quantityControls = productItem.querySelector('.quantity-controls');
+                if (quantityControls) {
+                    productInfo.insertAdjacentElement('afterend', badge);
+                } else {
+                    // Fallback: tambahkan di akhir product-item
+                    productItem.appendChild(badge);
+                }
+            });
+            
+            console.log(`✅ [Update Upselling] Added recommendation for group: ${groupCode}`);
+        } else {
+            console.log(`  ℹ️ [Update Upselling] No recommendation for group: ${groupCode}`);
+        }
+    });
+    
+    console.log(`✅ [Update Upselling] Finished updating ${accordionItems.length} groups`);
+}
+
+/**
+ * Update bundle promo upselling recommendations
+ * Called after cart changes to refresh bundle upselling display
+ */
+function updateBundleUpsellingRecommendations() {
+    const productContainer = document.getElementById('product-groups');
+    if (!productContainer) return;
+    
+    // Remove existing bundle upselling badges
+    const existingBundleBadges = productContainer.querySelectorAll('.upsell-bundle-badge');
+    existingBundleBadges.forEach(badge => badge.remove());
+    
+    if (!bundlePromosList || bundlePromosList.length === 0) {
+        console.log('🔄 [Bundle Upselling] No bundle promos available');
+        return;
+    }
+    
+    if (!promoStructureMap || promoStructureMap.size === 0) {
+        console.log('🔄 [Bundle Upselling] No promo structure available');
+        return;
+    }
+    
+    const storeTypeEl = document.getElementById('store-type');
+    const selectedStoreType = storeTypeEl ? storeTypeEl.value : 'grosir';
+    
+    // Check each available bundle promo
+    bundlePromosList.forEach(promo => {
+        const upsellingRec = getBundleUpsellingRecommendation(
+            promo.promo_id,
+            cart,
+            productDataMap,
+            promoStructureMap,
+            bundlePromosList,
+            bundlePromoGroupsList,
+            promoAvailabilityRules,
+            selectedStoreType,
+            currentUser?.zona || null,
+            currentUser?.region_name || null,
+            currentUser?.depo_id || null,
+            isPromoAvailable
+        );
+        
+        if (!upsellingRec) return;
+        
+        // Rekomendasi muncul di bucket yang "lebih" (jumlah qty lebih besar)
+        // untuk menambahkan bucket yang "kurang" (jumlah qty lebih kecil)
+        const promoData = promoStructureMap.get(promo.promo_id);
+        if (!promoData || !promoData.buckets) return;
+        
+        // Get source bucket (bucket yang lebih - akan menampilkan rekomendasi)
+        const sourceBucketId = upsellingRec.sourceBucketId;
+        const targetBucketId = upsellingRec.targetBucketId;
+        
+        if (!sourceBucketId || !targetBucketId) return;
+        
+        // Get products from source bucket (bucket yang lebih)
+        const productsInSourceBucket = promoData.buckets.get(sourceBucketId) || [];
+        if (productsInSourceBucket.length === 0) return;
+        
+        // Add badge to each product in the source bucket
+        // Rekomendasi menyarankan untuk menambahkan bucket target
+        // PENTING: Untuk bucket yang masuk di 2 paket, pastikan badge hanya muncul di konteks promo yang benar
+        const currentPromoId = promo.promo_id; // Store promo ID untuk digunakan di dalam loop
+        productsInSourceBucket.forEach(productId => {
+            // Cari semua product items dengan productId ini
+            const allProductItemsWithId = productContainer.querySelectorAll(`.product-item[data-product-id="${productId}"]`);
+            
+            // Filter product items yang valid untuk menampilkan badge
+            // Badge bisa muncul di:
+            // 1. Product yang berada di bucket accordion (lingkungan paket)
+            // 2. Product yang berada di group accordion (lingkungan strata) TAPI juga ada di bucket ini
+            const allProductItems = Array.from(allProductItemsWithId).filter(productItem => {
+                // Cek apakah product berada di bucket accordion
+                const bucketAccordion = productItem.closest(`.accordion-item[data-bucket-id="${sourceBucketId}"]`);
+                
+                if (bucketAccordion) {
+                    // Product berada di bucket accordion - validasi promo ID
+                    const bucketPromoId = bucketAccordion.getAttribute('data-promo-id');
+                    if (bucketPromoId !== currentPromoId) {
+                        console.log(`  ⏭️ Product ${productId} in bucket ${sourceBucketId} - promo mismatch: ${bucketPromoId} vs ${currentPromoId}`);
+                        return false;
+                    }
+                    
+                    // Pastikan ada parent promo accordion dengan promo yang benar
+                    let currentElement = bucketAccordion.parentElement;
+                    let foundCorrectParent = false;
+                    
+                    while (currentElement && currentElement !== productContainer) {
+                        if (currentElement.classList && currentElement.classList.contains('accordion-item')) {
+                            const parentPromoId = currentElement.getAttribute('data-promo-id');
+                            if (parentPromoId === currentPromoId) {
+                                foundCorrectParent = true;
+                                break;
+                            }
+                        }
+                        currentElement = currentElement.parentElement;
+                    }
+                    
+                    if (!foundCorrectParent) {
+                        console.log(`  ⏭️ Product ${productId} in bucket ${sourceBucketId} - no parent promo accordion found for promo ${currentPromoId}`);
+                        return false;
+                    }
+                    
+                    return true;
+                } else {
+                    // Product tidak berada di bucket accordion - cek apakah berada di group accordion
+                    // DAN product ini memang ada di bucket sourceBucketId untuk promo ini
+                    const groupAccordion = productItem.closest(`.accordion-item[data-group-code]`);
+                    if (!groupAccordion) {
+                        console.log(`  ⏭️ Product ${productId} - not in bucket or group accordion`);
+                        return false;
+                    }
+                    
+                    // Validasi: product ini memang ada di bucket sourceBucketId untuk promo currentPromoId
+                    const promoData = promoStructureMap.get(currentPromoId);
+                    if (!promoData || !promoData.buckets) {
+                        return false;
+                    }
+                    
+                    const bucketProducts = promoData.buckets.get(sourceBucketId) || [];
+                    if (!bucketProducts.includes(productId)) {
+                        console.log(`  ⏭️ Product ${productId} - not in bucket ${sourceBucketId} for promo ${currentPromoId}`);
+                        return false;
+                    }
+                    
+                    // Product valid - berada di group accordion tapi juga ada di bucket ini
+                    console.log(`  ✅ Product ${productId} - in group accordion but also in bucket ${sourceBucketId} for promo ${currentPromoId}`);
+                    return true;
+                }
+            });
+            
+            allProductItems.forEach(productItem => {
+                // Skip if already has bundle badge for this promo
+                const existingBadge = productItem.querySelector(`.upsell-bundle-badge[data-promo-id="${currentPromoId}"]`);
+                if (existingBadge) {
+                    console.log(`  ⏭️ Skipping product ${productId} in bucket ${sourceBucketId} for promo ${currentPromoId} - badge already exists`);
+                    return;
+                }
+                
+                // Validasi sudah dilakukan di filter, tidak perlu double check lagi
+                // Filter sudah memastikan product item berada dalam konteks promo yang benar
+                
+                // Find product-info
+                const productInfo = productItem.querySelector('.product-info');
+                if (!productInfo) return;
+                
+                // Create badge with promo ID for identification
+                const badge = document.createElement('div');
+                badge.className = 'upsell-bundle-badge';
+                badge.setAttribute('data-promo-id', currentPromoId);
+                badge.setAttribute('data-target-bucket', targetBucketId);
+                const discountFormatted = Math.round(upsellingRec.discountPerPackage).toLocaleString('id-ID');
+                
+                const currentDiscount = upsellingRec.currentPackages > 0 
+                    ? (upsellingRec.currentPackages * Math.round(upsellingRec.discountPerPackage)).toLocaleString('id-ID') 
+                    : '0';
+                
+                badge.innerHTML = `
+                    Potongan saat ini <strong>${currentDiscount}</strong> 
+                    tambahkan bucket <strong>${targetBucketId}</strong> sebanyak <strong>${upsellingRec.gapQty.toFixed(1)} ${upsellingRec.gapUnit}</strong> 
+                    untuk mendapat ${upsellingRec.isFirstPackage ? 'potongan bundling sebesar' : '1 paket bundle lagi (potongan tambahan)'} <strong>${discountFormatted}</strong>
+                    <span style="font-size: 0.85em; opacity: 0.8;"> (Paket ${currentPromoId})</span>
+                `;
+                
+                // Add badge after product-info (before quantity-controls)
+                const quantityControls = productItem.querySelector('.quantity-controls');
+                if (quantityControls) {
+                    productInfo.insertAdjacentElement('afterend', badge);
+                } else {
+                    productItem.appendChild(badge);
+                }
+            });
+        });
+        
+        console.log(`✅ [Bundle Upselling] Added recommendation for promo ${promo.promo_id}`);
+    });
+    
+    console.log(`✅ [Bundle Upselling] Finished updating bundle upselling recommendations`);
+}
+
+/**
+ * Helper function to calculate total per principal (mirror from calculation.js)
+ */
+function calculateTotalPerPrincipal(cart, productDataMap, principalMap, userZona) {
+    const totalPerPrincipal = new Map();
+    
+    cart.forEach((item, productId) => {
+        const product = productDataMap.get(productId);
+        if (!product) return;
+        
+        // Get principal code for this product
+        const principalCode = principalMap.get(productId) || product.principal_id || '';
+        if (!principalCode) return;
+        
+        // Get base price (already include PPN)
+        const basePrice = product.prices?.[userZona] || 0;
+        if (!basePrice) return;
+        
+        // Calculate quantities
+        const qtyKrt = item.quantities?.krt || item.quantities?.unit_1 || item.qtyKarton || 0;
+        const qtyBox = item.quantities?.box || item.quantities?.unit_2 || item.qtyBox || 0;
+        const ratio = product.ratio_unit_2_per_unit_1 || 1;
+        const qtyBoxTotal = (qtyKrt * ratio) + qtyBox;
+        
+        // Calculate price per box (base_price is per unit_1/karton)
+        const pricePerBox = basePrice / ratio;
+        
+        // Calculate subtotal (INCLUDE PPN - langsung pakai base_price)
+        const subtotal = qtyBoxTotal * pricePerBox;
+        
+        // Normalize principal code to uppercase
+        const principalKey = String(principalCode).toUpperCase().trim();
+        totalPerPrincipal.set(principalKey, (totalPerPrincipal.get(principalKey) || 0) + subtotal);
+    });
+    
+    return totalPerPrincipal;
+}
+
+/**
+ * Get principal discount upselling recommendation
+ */
+function getPrincipalUpsellingRecommendation(
+    principalCode,
+    cart,
+    productDataMap,
+    principalMap,
+    principalDiscountTiers,
+    promoAvailabilityRules,
+    storeType,
+    userZona,
+    userRegion,
+    userDepo,
+    isPromoAvailable
+) {
+    if (!cart || cart.size === 0 || !principalDiscountTiers || principalDiscountTiers.length === 0) {
+        return null;
+    }
+    
+    // 1. Hitung total belanja untuk principal ini
+    const totalPerPrincipal = calculateTotalPerPrincipal(cart, productDataMap, principalMap, userZona);
+    const currentTotal = totalPerPrincipal.get(principalCode.toUpperCase().trim()) || 0;
+    
+    if (currentTotal <= 0) {
+        return null; // Tidak ada belanja untuk principal ini
+    }
+    
+    // 2. Filter tiers yang available untuk principal ini
+    const availableTiers = principalDiscountTiers.filter(tier => {
+        // Check availability
+        const available = isPromoAvailable(
+            tier.promo_id,
+            'principal',
+            promoAvailabilityRules,
+            storeType,
+            userZona,
+            userRegion,
+            userDepo
+        );
+        if (!available) return false;
+        
+        // Check if principal code matches
+        let principalCodes = [];
+        if (Array.isArray(tier.principal_codes)) {
+            principalCodes = tier.principal_codes;
+        } else if (typeof tier.principal_codes === 'string') {
+            principalCodes = tier.principal_codes.split(',').map(s => s.trim());
+        }
+        principalCodes = principalCodes.map(c => String(c).toUpperCase().trim());
+        return principalCodes.includes(principalCode.toUpperCase().trim());
+    });
+    
+    if (availableTiers.length === 0) {
+        return null;
+    }
+    
+    // 3. Sort tiers by min_purchase_amount ascending
+    const sortedTiers = [...availableTiers].sort((a, b) => {
+        const minA = parseFloat(a.min_purchase_amount) || 0;
+        const minB = parseFloat(b.min_purchase_amount) || 0;
+        return minA - minB; // Ascending
+    });
+    
+    // 4. Cari tier berikutnya yang lebih tinggi
+    let currentTier = null;
+    let nextTier = null;
+    
+    for (const tier of sortedTiers) {
+        const minPurchase = parseFloat(tier.min_purchase_amount) || 0;
+        if (currentTotal >= minPurchase) {
+            currentTier = tier;
+        } else {
+            nextTier = tier;
+            break;
+        }
+    }
+    
+    // 5. Jika sudah di tier tertinggi, tidak ada rekomendasi
+    if (!nextTier) {
+        return null;
+    }
+    
+    // 6. Hitung gap
+    const nextMinPurchase = parseFloat(nextTier.min_purchase_amount) || 0;
+    const gap = nextMinPurchase - currentTotal;
+    
+    if (gap <= 0) {
+        return null;
+    }
+    
+    // 7. Hitung potensi diskon
+    const currentDiscount = parseFloat(currentTier?.discount_percentage) || 0;
+    const nextDiscount = parseFloat(nextTier.discount_percentage) || 0;
+    const discountIncrease = nextDiscount - currentDiscount;
+    
+    const formatCurrency = (amount) => {
+        const roundedAmount = Math.round(amount || 0);
+        return new Intl.NumberFormat('id-ID', {
+            style: 'currency',
+            currency: 'IDR',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(roundedAmount);
+    };
+    
+    return {
+        principalCode,
+        currentTotal,
+        currentDiscount,
+        nextMinPurchase,
+        nextDiscount,
+        gap,
+        discountIncrease,
+        message: `Tambahkan belanja principal ${principalCode} sebesar ${formatCurrency(gap)} untuk mendapat diskon ${nextDiscount}% (saat ini ${currentDiscount}%)`
+    };
+}
+
+/**
+ * Get invoice discount upselling recommendation
+ */
+function getInvoiceUpsellingRecommendation(
+    basePrice,
+    invoiceDiscounts,
+    paymentMethod
+) {
+    if (!invoiceDiscounts || invoiceDiscounts.length === 0 || !paymentMethod) {
+        return null;
+    }
+    
+    // 1. Filter by payment method
+    const applicableDiscounts = invoiceDiscounts.filter(discount => 
+        discount.payment_method === paymentMethod
+    );
+    
+    if (applicableDiscounts.length === 0) {
+        return null;
+    }
+    
+    // 2. Sort by min_purchase_amount ascending
+    const sortedDiscounts = [...applicableDiscounts].sort((a, b) => {
+        const minA = parseFloat(a.min_purchase_amount) || 0;
+        const minB = parseFloat(b.min_purchase_amount) || 0;
+        return minA - minB; // Ascending
+    });
+    
+    // 3. Cari tier berikutnya yang lebih tinggi
+    let currentDiscount = null;
+    let nextDiscount = null;
+    
+    for (const discount of sortedDiscounts) {
+        const minPurchase = parseFloat(discount.min_purchase_amount) || 0;
+        if (basePrice >= minPurchase) {
+            currentDiscount = discount;
+        } else {
+            nextDiscount = discount;
+            break;
+        }
+    }
+    
+    // 4. Jika sudah di tier tertinggi, tidak ada rekomendasi
+    if (!nextDiscount) {
+        return null;
+    }
+    
+    // 5. Hitung gap
+    const nextMinPurchase = parseFloat(nextDiscount.min_purchase_amount) || 0;
+    const gap = nextMinPurchase - basePrice;
+    
+    if (gap <= 0) {
+        return null;
+    }
+    
+    // 6. Hitung potensi diskon
+    const currentDiscountPercent = parseFloat(currentDiscount?.discount_percentage) || 0;
+    const nextDiscountPercent = parseFloat(nextDiscount.discount_percentage) || 0;
+    const discountIncrease = nextDiscountPercent - currentDiscountPercent;
+    
+    const formatCurrency = (amount) => {
+        const roundedAmount = Math.round(amount || 0);
+        return new Intl.NumberFormat('id-ID', {
+            style: 'currency',
+            currency: 'IDR',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(roundedAmount);
+    };
+    
+    return {
+        currentTotal: basePrice,
+        currentDiscount: currentDiscountPercent,
+        nextMinPurchase,
+        nextDiscount: nextDiscountPercent,
+        gap,
+        discountIncrease,
+        paymentMethod,
+        message: `Tambahkan belanja sebesar ${formatCurrency(gap)} untuk mendapat diskon invoice ${nextDiscountPercent}% (saat ini ${currentDiscountPercent}%)`
+    };
+}
+
+/**
+ * Update all upselling recommendations in calculation display
+ */
+function updateCalculationUpsellingRecommendations() {
+    const calculationDetails = document.getElementById('calculation-details');
+    if (!calculationDetails) return;
+    
+    // Remove existing upselling sections, info direct, collapse content, dan toggle
+    const existingUpsellSections = calculationDetails.querySelectorAll('.upsell-section, .upsell-info-direct, .upsell-collapse-content');
+    existingUpsellSections.forEach(section => section.remove());
+    
+    // Remove toggle dari calc-row
+    const existingToggles = calculationDetails.querySelectorAll('.collapse-toggle');
+    existingToggles.forEach(toggle => toggle.remove());
+    
+    if (cart.size === 0) return;
+    
+    const storeTypeEl = document.getElementById('store-type');
+    const selectedStoreType = storeTypeEl ? storeTypeEl.value : 'grosir';
+    
+    const userZona = currentUser?.zona || null;
+    const userRegion = currentUser?.region_name || null;
+    const userDepo = currentUser?.depo_id || null;
+    
+    const formatCurrency = (amount) => {
+        const roundedAmount = Math.round(amount || 0);
+        return new Intl.NumberFormat('id-ID', {
+            style: 'currency',
+            currency: 'IDR',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(roundedAmount);
+    };
+    
+    // 1. Principal Discount Upselling (tidak collapse, tampil langsung)
+    const principalDiscountRow = document.getElementById('principal-discount');
+    if (principalDiscountRow) {
+        const principalRecommendations = [];
+        
+        // Get unique principals from cart
+        const principalsInCart = new Set();
+        cart.forEach((item, productId) => {
+            const product = productDataMap.get(productId);
+            if (!product) return;
+            
+            const principalCode = principalMap.get(productId) || product.principal_id || '';
+            if (principalCode) {
+                principalsInCart.add(principalCode.toUpperCase().trim());
+            }
+        });
+        
+        // Check upselling for each principal
+        principalsInCart.forEach(principalCode => {
+            const recommendation = getPrincipalUpsellingRecommendation(
+                principalCode,
+                cart,
+                productDataMap,
+                principalMap,
+                principalDiscountTiers,
+                promoAvailabilityRules,
+                selectedStoreType,
+                userZona,
+                userRegion,
+                userDepo,
+                isPromoAvailable
+            );
+            
+            if (recommendation) {
+                principalRecommendations.push(recommendation);
+            }
+        });
+        
+        if (principalRecommendations.length > 0) {
+            // Tampilkan langsung tanpa header (hanya informasi)
+            principalRecommendations.forEach(recommendation => {
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'upsell-info-direct';
+                infoDiv.innerHTML = `<span class="upsell-icon">💡</span> ${recommendation.message}`;
+                principalDiscountRow.closest('.calc-row').insertAdjacentElement('afterend', infoDiv);
+            });
+        }
+    }
+    
+    // 2. Strata (Group Promo) Upselling (collapse di dalam row Promo Grup Produk)
+    const groupDiscountRow = document.getElementById('group-discount');
+    if (groupDiscountRow) {
+        const groupDiscountRowElement = groupDiscountRow.closest('.calc-row');
+        
+        // Remove existing collapse content dan toggle
+        const existingContent = groupDiscountRowElement.nextElementSibling;
+        if (existingContent && existingContent.classList.contains('upsell-collapse-content')) {
+            existingContent.remove();
+        }
+        const existingToggle = groupDiscountRowElement.querySelector('.collapse-toggle');
+        if (existingToggle) {
+            existingToggle.remove();
+        }
+        
+        const strataRecommendations = [];
+        
+        // Get all groups with upselling recommendations
+        const productContainer = document.getElementById('product-groups');
+        if (productContainer) {
+            const accordionItems = productContainer.querySelectorAll('.accordion-item[data-group-code]');
+            accordionItems.forEach(accordionItem => {
+                const groupCode = accordionItem.dataset.groupCode;
+                if (!groupCode) return;
+                
+                const recommendation = getStrataUpsellingRecommendation(
+                    groupCode,
+                    cart,
+                    productDataMap,
+                    productGroupMap,
+                    groupPromos,
+                    groupPromoTiers,
+                    userZona,
+                    userRegion,
+                    userDepo,
+                    isPromoAvailable,
+                    promoAvailabilityRules,
+                    selectedStoreType,
+                    productGroupAvailabilityRules,
+                    isProductGroupAvailable,
+                    Array.from(productDataMap.values())
+                );
+                
+                if (recommendation) {
+                    // Format message yang informatif (sama seperti di product list)
+                    const unitLabel = recommendation.tierUnit === 'unit_1' ? 'krt' : 'box';
+                    const currentDiscount = Math.round(recommendation.currentDiscountPerUnit || 0);
+                    const nextDiscount = Math.round(recommendation.nextDiscountPerUnit || 0);
+                    const gapQty = recommendation.gapQty.toFixed(1);
+                    
+                    const groupName = recommendation.groupName || groupCode;
+                    let message = `<strong>${groupName}:</strong> `;
+                    message += `Potongan saat ini <strong>${currentDiscount.toLocaleString('id-ID')}</strong> `;
+                    message += `tambah <strong>${gapQty} ${unitLabel}</strong> lagi `;
+                    message += `untuk mendapat potongan <strong>${nextDiscount.toLocaleString('id-ID')}</strong>`;
+                    
+                    // Tambahkan info variant jika diperlukan
+                    if (recommendation.variantGap > 0 && recommendation.suggestedVariants && recommendation.suggestedVariants.length > 0) {
+                        message += ` (butuh ${recommendation.variantGap} variant lagi: ${recommendation.suggestedVariants.join(', ')})`;
+                    }
+                    
+                    strataRecommendations.push({ message });
+                }
+            });
+        }
+        
+        if (strataRecommendations.length > 0) {
+            // Add collapse toggle di kiri row Promo Grup Produk
+            const toggle = document.createElement('span');
+            toggle.className = 'collapse-toggle';
+            toggle.id = 'toggle-group-upsell';
+            toggle.textContent = '▼';
+            toggle.style.cursor = 'pointer';
+            toggle.onclick = (e) => {
+                e.stopPropagation();
+                toggleGroupUpsell();
+            };
+            // Insert toggle di awal row (sebelum label)
+            const labelSpan = groupDiscountRowElement.querySelector('span:first-of-type');
+            if (labelSpan) {
+                groupDiscountRowElement.insertBefore(toggle, labelSpan);
+            } else {
+                groupDiscountRowElement.insertBefore(toggle, groupDiscountRowElement.firstChild);
+            }
+            
+            // Create collapse content di bawah row Promo Grup Produk
+            const collapseContent = document.createElement('div');
+            collapseContent.className = 'upsell-collapse-content';
+            collapseContent.id = 'group-upsell-content';
+            collapseContent.style.display = 'none';
+            
+            let recommendationsHtml = '';
+            strataRecommendations.forEach(rec => {
+                recommendationsHtml += `<div class="upsell-recommendation-item">${rec.message}</div>`;
+            });
+            
+            collapseContent.innerHTML = recommendationsHtml;
+            groupDiscountRowElement.insertAdjacentElement('afterend', collapseContent);
+        }
+    }
+    
+    // 3. Bundle Promo Upselling (collapse di dalam row Promo Bundling)
+    const bundleDiscountRow = document.getElementById('bundle-discount');
+    if (bundleDiscountRow) {
+        const bundleDiscountRowElement = bundleDiscountRow.closest('.calc-row');
+        
+        // Remove existing collapse content dan toggle
+        const existingContent = bundleDiscountRowElement.nextElementSibling;
+        if (existingContent && existingContent.classList.contains('upsell-collapse-content')) {
+            existingContent.remove();
+        }
+        const existingToggle = bundleDiscountRowElement.querySelector('.collapse-toggle');
+        if (existingToggle) {
+            existingToggle.remove();
+        }
+        
+        const bundleRecommendations = [];
+        
+        if (bundlePromosList && bundlePromosList.length > 0 && promoStructureMap && promoStructureMap.size > 0) {
+            bundlePromosList.forEach(promo => {
+                const recommendation = getBundleUpsellingRecommendation(
+                    promo.promo_id,
+                    cart,
+                    productDataMap,
+                    promoStructureMap,
+                    bundlePromosList,
+                    bundlePromoGroupsList,
+                    promoAvailabilityRules,
+                    selectedStoreType,
+                    userZona,
+                    userRegion,
+                    userDepo,
+                    isPromoAvailable
+                );
+                
+                if (recommendation) {
+                    // Tambahkan promo ID di awal message untuk clarity
+                    const messageWithPromo = `<strong>Paket ${promo.promo_id}:</strong> ${recommendation.message}`;
+                    bundleRecommendations.push({
+                        promoId: promo.promo_id,
+                        message: messageWithPromo
+                    });
+                }
+            });
+        }
+        
+        if (bundleRecommendations.length > 0) {
+            // Add collapse toggle di kiri row Promo Bundling
+            const toggle = document.createElement('span');
+            toggle.className = 'collapse-toggle';
+            toggle.id = 'toggle-bundle-upsell';
+            toggle.textContent = '▼';
+            toggle.style.cursor = 'pointer';
+            toggle.onclick = (e) => {
+                e.stopPropagation();
+                toggleBundleUpsell();
+            };
+            // Insert toggle di awal row (sebelum label)
+            const labelSpan = bundleDiscountRowElement.querySelector('span:first-of-type');
+            if (labelSpan) {
+                bundleDiscountRowElement.insertBefore(toggle, labelSpan);
+            } else {
+                bundleDiscountRowElement.insertBefore(toggle, bundleDiscountRowElement.firstChild);
+            }
+            
+            // Create collapse content di bawah row Promo Bundling
+            const collapseContent = document.createElement('div');
+            collapseContent.className = 'upsell-collapse-content';
+            collapseContent.id = 'bundle-upsell-content';
+            collapseContent.style.display = 'none';
+            
+            let recommendationsHtml = '';
+            bundleRecommendations.forEach(rec => {
+                recommendationsHtml += `<div class="upsell-recommendation-item">${rec.message}</div>`;
+            });
+            
+            collapseContent.innerHTML = recommendationsHtml;
+            bundleDiscountRowElement.insertAdjacentElement('afterend', collapseContent);
+        }
+    }
+    
+    // 4. Invoice Discount Upselling
+    const invoiceDiscountRow = document.getElementById('invoice-discount');
+    if (invoiceDiscountRow) {
+        const basePrice = window.lastCalculationResult?.basePrice || window.lastCalculationResult?.totalBasePrice || 0;
+        if (basePrice > 0) {
+            const paymentMethodEl = document.getElementById('payment-method');
+            const paymentMethod = paymentMethodEl ? paymentMethodEl.value : 'COD';
+            
+            const recommendation = getInvoiceUpsellingRecommendation(
+                basePrice,
+                invoiceDiscounts,
+                paymentMethod
+            );
+            
+            if (recommendation) {
+                // Tampilkan langsung tanpa header (hanya informasi)
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'upsell-info-direct';
+                infoDiv.innerHTML = `<span class="upsell-icon">💡</span> ${recommendation.message}`;
+                invoiceDiscountRow.closest('.calc-row').insertAdjacentElement('afterend', infoDiv);
+            }
+        }
+    }
+}
+
+/**
+ * Create upselling section with optional collapse functionality
+ * @param {string} type - Section type (principal, invoice, strata-{groupCode}, bundle-{promoId})
+ * @param {string} title - Section title
+ * @param {Array} recommendations - Array of recommendations
+ * @param {Function} formatCurrency - Currency formatter function
+ * @param {boolean} collapsible - Whether section is collapsible (default: true)
+ */
+function createUpsellSection(type, title, recommendations, formatCurrency, collapsible = true) {
+    const sectionId = `upsell-${type}-section`;
+    const collapseId = `upsell-${type}-collapse`;
+    
+    if (!recommendations || recommendations.length === 0) {
+        return null;
+    }
+    
+    let recommendationsHtml = '';
+    recommendations.forEach((rec, index) => {
+        let message = '';
+        
+        if (typeof rec === 'string') {
+            message = rec;
+        } else if (rec.message) {
+            message = rec.message;
+        } else if (rec.groupCode) {
+            // Strata recommendation
+            message = rec.message || 'Rekomendasi upselling';
+        } else if (rec.promoId) {
+            // Bundle recommendation
+            message = rec.message || 'Rekomendasi upselling';
+        } else if (rec.principalCode) {
+            // Principal recommendation
+            message = rec.message || 'Rekomendasi upselling';
+        }
+        
+        if (message) {
+            recommendationsHtml += `<div class="upsell-recommendation-item">${message}</div>`;
+        }
+    });
+    
+    if (!recommendationsHtml) {
+        return null;
+    }
+    
+    const section = document.createElement('div');
+    section.className = 'upsell-section';
+    section.id = sectionId;
+    
+    if (collapsible) {
+        // Collapsible section (untuk group dan bundling)
+        section.innerHTML = `
+            <div class="upsell-section-header" onclick="toggleUpsellSection('${collapseId}')">
+                <span class="upsell-section-title">💡 ${title}</span>
+                <span class="upsell-section-toggle" id="toggle-${collapseId}">▼</span>
+            </div>
+            <div class="upsell-section-content" id="${collapseId}" style="display: none;">
+                ${recommendationsHtml}
+            </div>
+        `;
+    } else {
+        // Non-collapsible section (untuk principal dan invoice)
+        section.innerHTML = `
+            <div class="upsell-section-header" style="cursor: default;">
+                <span class="upsell-section-title">💡 Rekomendasi ${title}</span>
+            </div>
+            <div class="upsell-section-content" style="display: block;">
+                ${recommendationsHtml}
+            </div>
+        `;
+    }
+    
+    return section;
+}
+
+/**
+ * Toggle upselling section collapse
+ */
+window.toggleUpsellSection = function(collapseId) {
+    const content = document.getElementById(collapseId);
+    const toggle = document.getElementById(`toggle-${collapseId}`);
+    
+    if (!content || !toggle) return;
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        toggle.textContent = '▲';
+    } else {
+        content.style.display = 'none';
+        toggle.textContent = '▼';
+    }
+};
+
+/**
+ * Toggle group promo upselling collapse
+ */
+window.toggleGroupUpsell = function() {
+    const content = document.getElementById('group-upsell-content');
+    const toggle = document.getElementById('toggle-group-upsell');
+    
+    if (!content || !toggle) return;
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        toggle.textContent = '▲';
+    } else {
+        content.style.display = 'none';
+        toggle.textContent = '▼';
+    }
+};
+
+/**
+ * Toggle bundle promo upselling collapse
+ */
+window.toggleBundleUpsell = function() {
+    const content = document.getElementById('bundle-upsell-content');
+    const toggle = document.getElementById('toggle-bundle-upsell');
+    
+    if (!content || !toggle) return;
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        toggle.textContent = '▲';
+    } else {
+        content.style.display = 'none';
+        toggle.textContent = '▼';
+    }
+};
+
+/**
  * Render products grouped by product groups in accordion format
  * Hanya menampilkan products yang ada di product_group_members (tidak ada "Others")
  */
@@ -1644,11 +3185,14 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
             accordionIndex++;
             
             html += `
-                <div class="accordion-item">
-                    <button class="accordion-header" onclick="toggleAccordion('${promoAccordionId}')">
-                        <span class="accordion-title">${shortDescription}</span>
-                        <span class="accordion-icon" id="icon-${promoAccordionId}">▼</span>
-                    </button>
+                <div class="accordion-item" data-promo-id="${promoId}">
+                    <div class="accordion-header-wrapper" style="position: relative;">
+                        <button class="accordion-header" onclick="toggleAccordion('${promoAccordionId}')" style="width: 100%;">
+                            <span class="accordion-title">${shortDescription}</span>
+                            <span class="accordion-icon" id="icon-${promoAccordionId}">▼</span>
+                        </button>
+                        <button class="btn-promo-info" onclick="showBundlePromoModal('${promoId}'); event.stopPropagation();" title="Info Promo" style="position: absolute; right: 40px; top: 50%; transform: translateY(-50%); background: #007bff; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; z-index: 10;">ℹ️</button>
+                    </div>
                     <div class="accordion-content" id="${promoAccordionId}">
             `;
             
@@ -1663,7 +3207,7 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
                 accordionIndex++;
                 
                 html += `
-                    <div class="accordion-item" style="margin-left: 0; margin-top: 0; border-left: none;">
+                    <div class="accordion-item" data-promo-id="${promoId}" data-bucket-id="${bucketId}" style="margin-left: 0; margin-top: 0; border-left: none;">
                         <button class="accordion-header" onclick="toggleAccordion('${bucketAccordionId}')" style="background: #e2e6ea; font-size: 0.9em; padding: 10px 15px; font-weight: bold; color: #343a40;">
                             <span class="accordion-title">Bucket ${bucketId}</span>
                             <span class="accordion-icon" id="icon-${bucketAccordionId}">▼</span>
@@ -1825,11 +3369,14 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
         accordionIndex++;
         
         html += `
-            <div class="accordion-item">
-                <button class="accordion-header" onclick="toggleAccordion('${accordionId}')">
-                    <span class="accordion-title">${group.name}${group.name !== group.code ? ` (${group.code})` : ''}</span>
-                    <span class="accordion-icon" id="icon-${accordionId}">▼</span>
-                </button>
+            <div class="accordion-item" data-group-code="${group.code}">
+                <div class="accordion-header-wrapper" style="position: relative;">
+                    <button class="accordion-header" onclick="toggleAccordion('${accordionId}')" style="width: 100%;">
+                        <span class="accordion-title">${group.name}${group.name !== group.code ? ` (${group.code})` : ''}</span>
+                        <span class="accordion-icon" id="icon-${accordionId}">▼</span>
+                    </button>
+                    <button class="btn-promo-info" onclick="showGroupPromoModal('${group.code}'); event.stopPropagation();" title="Info Promo" style="position: absolute; right: 40px; top: 50%; transform: translateY(-50%); background: #007bff; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; z-index: 10;">ℹ️</button>
+                </div>
                 <div class="accordion-content" id="${accordionId}">
                     <div class="products-list">
         `;
@@ -1908,9 +3455,69 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
             `;
         });
         
-        html += `
+        // Get upselling recommendation for this group
+        const storeTypeEl = document.getElementById('store-type');
+        const selectedStoreType = storeTypeEl ? storeTypeEl.value : 'grosir';
+        
+        const upsellingRec = getStrataUpsellingRecommendation(
+            group.code,
+            cart,
+            productDataMap,
+            productGroupMap,
+            groupPromos,
+            groupPromoTiers,
+            currentUser?.zona || null,
+            currentUser?.region_name || null,
+            currentUser?.depo_id || null,
+            isPromoAvailable,
+            promoAvailabilityRules,
+            selectedStoreType,
+            productGroupAvailabilityRules,
+            isProductGroupAvailable,
+            allProducts
+        );
+        
+        // Add upselling recommendation if available
+        if (upsellingRec) {
+            const unitLabel = upsellingRec.tierUnit === 'unit_1' ? 'krt' : 'box';
+            const formatCurrency = (amount) => {
+                const roundedAmount = Math.round(amount || 0);
+                return new Intl.NumberFormat('id-ID', {
+                    style: 'currency',
+                    currency: 'IDR',
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0
+                }).format(roundedAmount);
+            };
+            
+            html += `
+                <div class="upsell-strata-box" style="margin-top: 15px; padding: 12px; background: #e8f5e9; border-left: 4px solid #4caf50; border-radius: 4px;">
+                    <div style="font-weight: bold; color: #2e7d32; margin-bottom: 8px;">
+                        🎯 Promo Strata (${upsellingRec.groupName})
+                    </div>
+                    <div style="font-size: 0.9em; color: #333; margin-bottom: 4px;">
+                        Tambah <strong>${upsellingRec.gapQty.toFixed(2)} ${unitLabel}</strong> lagi untuk dapat diskon 
+                        <strong>${formatCurrency(upsellingRec.nextDiscountPerUnit)}</strong> per ${unitLabel}
+                        (dari ${formatCurrency(upsellingRec.currentDiscountPerUnit)} menjadi ${formatCurrency(upsellingRec.nextDiscountPerUnit)} per ${unitLabel})
+                    </div>
+                    ${upsellingRec.variantGap > 0 ? `
+                        <div style="font-size: 0.85em; color: #666; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #ccc;">
+                            <strong>Butuh ${upsellingRec.variantGap} variant berbeda lagi.</strong>
+                            ${upsellingRec.suggestedVariants.length > 0 ? `
+                                <div style="margin-top: 4px;">
+                                    Variant yang bisa ditambahkan: 
+                                    <strong>${upsellingRec.suggestedVariants.join(', ')}</strong>
+                                </div>
+                            ` : ''}
+                        </div>
+                    ` : ''}
                 </div>
-            </div>
+            `;
+        }
+        
+        html += `
+                    </div>
+                </div>
         `;
     });
     
@@ -2064,6 +3671,32 @@ function setupModalCloseListeners() {
         priceModal.onclick = (e) => {
             if (e.target === priceModal) {
                 priceModal.style.display = 'none';
+            }
+        };
+    }
+    
+    // Promo info modal close listeners
+    const closePromoModal = document.getElementById('close-promo-modal');
+    const promoModalCloseBtn = document.getElementById('promo-modal-close-btn');
+    const promoModal = document.getElementById('promo-info-modal');
+    
+    if (closePromoModal) {
+        closePromoModal.onclick = () => {
+            if (promoModal) promoModal.style.display = 'none';
+        };
+    }
+    
+    if (promoModalCloseBtn) {
+        promoModalCloseBtn.onclick = () => {
+            if (promoModal) promoModal.style.display = 'none';
+        };
+    }
+    
+    // Close modal when clicking outside
+    if (promoModal) {
+        promoModal.onclick = (e) => {
+            if (e.target === promoModal) {
+                promoModal.style.display = 'none';
             }
         };
     }
@@ -2712,6 +4345,13 @@ async function handleCalculate() {
         // Re-render cart untuk update subtotal nett dan promo info
         renderKeranjang();
         
+        // Update upselling recommendations (di product list)
+        updateUpsellingRecommendations();
+        updateBundleUpsellingRecommendations();
+        
+        // Update upselling recommendations (di calculation display)
+        updateCalculationUpsellingRecommendations();
+        
         // Update final tagihan setelah semua perhitungan selesai
         updateFinalTagihan();
         
@@ -2764,12 +4404,16 @@ function updateCalculationDisplay(result) {
     const groupDiscountEl = document.getElementById('group-discount');
     if (groupDiscountEl) {
         groupDiscountEl.textContent = `- ${formatCurrency(result.groupPromoDiscount || 0)}`;
+        
+        // Toggle akan ditambahkan di updateCalculationUpsellingRecommendations jika ada rekomendasi
     }
     
     // Update bundle promo discount
     const bundleDiscountEl = document.getElementById('bundle-discount');
     if (bundleDiscountEl) {
         bundleDiscountEl.textContent = `- ${formatCurrency(result.bundlePromoDiscount || 0)}`;
+        
+        // Toggle akan ditambahkan di updateCalculationUpsellingRecommendations jika ada rekomendasi
     }
     
     // Update free product discount
@@ -3664,3 +5308,169 @@ function showDetailHargaModal(productId) {
     
     console.log('✅ Modal detail harga ditampilkan');
 }
+
+/**
+ * Show group promo modal (strata promo rules)
+ * @param {string} groupCode - Product group code
+ */
+window.showGroupPromoModal = function(groupCode) {
+    const promoModal = document.getElementById('promo-info-modal');
+    const promoModalTitle = document.getElementById('promo-modal-title');
+    const promoModalDetails = document.getElementById('promo-modal-details');
+    
+    if (!promoModal || !promoModalTitle || !promoModalDetails) {
+        console.error('Promo modal elements not found');
+        return;
+    }
+    
+    // Find group promo for this group code
+    const groupPromo = groupPromos.find(promo => 
+        promo.product_group_code && promo.product_group_code.toLowerCase() === groupCode.toLowerCase()
+    );
+    
+    if (!groupPromo) {
+        promoModalTitle.textContent = `Info Promo - Group ${groupCode}`;
+        promoModalDetails.innerHTML = '<p>Tidak ada promo yang tersedia untuk group ini.</p>';
+        promoModal.style.display = 'block';
+        return;
+    }
+    
+    // Get tiers for this promo
+    const promoTiers = groupPromoTiers.filter(tier => tier.promo_id === groupPromo.promo_id);
+    
+    const formatCurrency = (amount) => {
+        const roundedAmount = Math.round(amount || 0);
+        return new Intl.NumberFormat('id-ID', {
+            style: 'currency',
+            currency: 'IDR',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(roundedAmount);
+    };
+    
+    let html = `
+        <div style="margin-bottom: 15px;">
+            <h4 style="color: #1e3a8a; margin-bottom: 10px;">${groupPromo.promo_id || 'N/A'}</h4>
+            <p style="color: #666; margin-bottom: 10px;">${groupPromo.description || '-'}</p>
+            <div style="font-size: 0.9em; color: #888;">
+                <strong>Group:</strong> ${groupPromo.product_group_code || '-'} | 
+                <strong>Mode:</strong> ${groupPromo.tier_mode || '-'} | 
+                <strong>Unit:</strong> ${groupPromo.tier_unit || '-'}
+            </div>
+        </div>
+    `;
+    
+    if (promoTiers.length > 0) {
+        html += '<table class="promo-tier-table" style="width: 100%; margin-top: 15px;">';
+        
+        // Build header row based on tier_mode
+        if (groupPromo.tier_mode === "mix") {
+            html += '<thead><tr><th>Min. Qty</th><th>Diskon per Unit</th><th>Varian</th></tr></thead>';
+        } else {
+            html += '<thead><tr><th>Min. Qty</th><th>Diskon per Unit</th></tr></thead>';
+        }
+        
+        html += '<tbody>';
+        promoTiers.forEach(tier => {
+            if (groupPromo.tier_mode === "mix") {
+                html += `<tr>
+                    <td><strong>${tier.min_qty}</strong></td>
+                    <td style="color: var(--success-color, #28a745); font-weight: bold;">${formatCurrency(tier.discount_per_unit)}</td>
+                    <td>${tier.variant_count || '-'}</td>
+                </tr>`;
+            } else {
+                html += `<tr>
+                    <td><strong>${tier.min_qty}</strong></td>
+                    <td style="color: var(--success-color, #28a745); font-weight: bold;">${formatCurrency(tier.discount_per_unit)}</td>
+                </tr>`;
+            }
+        });
+        html += '</tbody></table>';
+    } else {
+        html += '<p style="color: #888; margin-top: 15px;">Tidak ada tier yang tersedia untuk promo ini.</p>';
+    }
+    
+    promoModalTitle.textContent = `Info Promo - Group ${groupCode}`;
+    promoModalDetails.innerHTML = html;
+    promoModal.style.display = 'block';
+};
+
+/**
+ * Show bundle promo modal
+ * @param {string} promoId - Bundle promo ID
+ */
+window.showBundlePromoModal = function(promoId) {
+    const promoModal = document.getElementById('promo-info-modal');
+    const promoModalTitle = document.getElementById('promo-modal-title');
+    const promoModalDetails = document.getElementById('promo-modal-details');
+    
+    if (!promoModal || !promoModalTitle || !promoModalDetails) {
+        console.error('Promo modal elements not found');
+        return;
+    }
+    
+    // Find bundle promo
+    const bundlePromo = bundlePromosList.find(promo => promo.promo_id === promoId);
+    
+    if (!bundlePromo) {
+        promoModalTitle.textContent = `Info Promo - Paket ${promoId}`;
+        promoModalDetails.innerHTML = '<p>Tidak ada promo yang tersedia untuk paket ini.</p>';
+        promoModal.style.display = 'block';
+        return;
+    }
+    
+    // Get bucket IDs for this promo
+    const bucketIds = bundlePromoGroupsList
+        .filter(g => g.promo_id === promoId)
+        .map(g => g.bucket_id)
+        .sort();
+    
+    const formatCurrency = (amount) => {
+        const roundedAmount = Math.round(amount || 0);
+        return new Intl.NumberFormat('id-ID', {
+            style: 'currency',
+            currency: 'IDR',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(roundedAmount);
+    };
+    
+    let html = `
+        <div style="margin-bottom: 15px;">
+            <h4 style="color: #1e3a8a; margin-bottom: 10px;">Paket ${bundlePromo.promo_id || 'N/A'}</h4>
+            <p style="color: #666; margin-bottom: 10px;">${bundlePromo.description || '-'}</p>
+            <div style="font-size: 0.9em; color: #888; margin-bottom: 10px;">
+                <strong>Bucket:</strong> ${bucketIds.join(', ') || '-'}
+            </div>
+            <div style="font-size: 0.9em; color: #888;">
+                <strong>Diskon per paket:</strong> <span style="color: var(--success-color, #28a745); font-weight: bold;">${formatCurrency(bundlePromo.discount_per_package || 0)}</span>
+                ${bundlePromo.max_packages ? ` | <strong>Max paket:</strong> ${bundlePromo.max_packages}` : ''}
+            </div>
+        </div>
+    `;
+    
+    // Get products in buckets (optional: show which products are in each bucket)
+    if (bucketIds.length > 0 && promoStructureMap.has(promoId)) {
+        const promoData = promoStructureMap.get(promoId);
+        const buckets = promoData.buckets;
+        
+        html += '<div style="margin-top: 20px;">';
+        html += '<h5 style="color: #1e3a8a; margin-bottom: 10px;">Produk dalam Paket:</h5>';
+        
+        bucketIds.forEach(bucketId => {
+            const productIds = buckets.get(bucketId) || [];
+            if (productIds.length > 0) {
+                html += `<div style="margin-bottom: 10px;">`;
+                html += `<strong>Bucket ${bucketId}:</strong> `;
+                html += `<span style="font-size: 0.9em; color: #666;">${productIds.join(', ')}</span>`;
+                html += `</div>`;
+            }
+        });
+        
+        html += '</div>';
+    }
+    
+    promoModalTitle.textContent = `Info Promo - Paket ${promoId}`;
+    promoModalDetails.innerHTML = html;
+    promoModal.style.display = 'block';
+};
