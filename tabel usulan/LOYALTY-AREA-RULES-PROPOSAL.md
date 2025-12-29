@@ -14,6 +14,7 @@ Saat ini `store_loyalty_classes` menyimpan `target_monthly` dan `cashback_percen
 CREATE TABLE store_loyalty_area_rules (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     loyalty_class_code TEXT NOT NULL,  -- reference ke store_loyalty_classes.code
+    store_type TEXT NOT NULL CHECK (store_type IN ('grosir', 'retail', 'all')) DEFAULT 'all', -- filter type outlet
     zone_codes TEXT[],     -- array dari zone_code (null = all zones)
     region_codes TEXT[],   -- array dari region_code (null = all regions)
     depo_codes TEXT[],     -- array dari depo_code (null = all depos)
@@ -34,15 +35,17 @@ CREATE INDEX idx_loyalty_area_rules_depo_codes ON store_loyalty_area_rules USING
 ### Struktur CSV Baru: `master_loyalty_area_rules.csv`
 
 ```csv
-loyalty_class_code,zone_codes,region_codes,depo_codes,target_monthly,cashback_percentage,priority
-A,ZONA1,ZONA1,REG1,REG1,DEPO1,DEPO1,50000000,1.0,10
-A,ZONA2,ZONA2,REG2,REG2,DEPO2,DEPO2,60000000,1.2,10
-A,all,all,all,25000000,0.5,0
-B,ZONA1,ZONA1,REG1,REG1,DEPO1,DEPO1,30000000,0.6,10
-B,all,all,all,25000000,0.5,0
+loyalty_class_code,store_type,zone_codes,region_codes,depo_codes,target_monthly,cashback_percentage,priority
+A,all,ZONA1,REG1,DEPO1,50000000,1.0,10
+A,grosir,ZONA2,REG2,DEPO2,60000000,1.2,10
+A,retail,ZONA2,REG2,DEPO2,55000000,1.1,10
+A,all,all,all,all,25000000,0.5,0
+B,all,ZONA1,REG1,DEPO1,30000000,0.6,10
+B,all,all,all,all,25000000,0.5,0
 ```
 
 **Format:**
+- `store_type`: 'grosir', 'retail', atau 'all' (default: 'all') - filter type outlet
 - `zone_codes`, `region_codes`, `depo_codes`: comma-separated values (akan di-parse menjadi array)
 - `all` = berlaku untuk semua area di level tersebut
 - `priority`: 0 = default/fallback, 10+ = area-specific (lebih tinggi = lebih spesifik)
@@ -57,12 +60,18 @@ B,all,all,all,25000000,0.5,0
 
 **Algoritma:**
 ```javascript
-function resolveLoyaltyRule(loyaltyClassCode, userZona, userRegion, userDepo, areaRules) {
+function resolveLoyaltyRule(loyaltyClassCode, storeType, userZona, userRegion, userDepo, areaRules) {
     // Filter rules untuk kelas ini
     const classRules = areaRules.filter(r => r.loyalty_class_code === loyaltyClassCode);
     
+    // Filter by store_type first
+    const storeTypeRules = classRules.filter(rule => {
+        if (rule.store_type === 'all') return true;
+        return rule.store_type === storeType;
+    });
+    
     // Sort by priority (descending) dan specificity
-    const sortedRules = classRules.sort((a, b) => {
+    const sortedRules = storeTypeRules.sort((a, b) => {
         // 1. Priority (higher first)
         if (b.priority !== a.priority) return b.priority - a.priority;
         
@@ -156,10 +165,11 @@ function matchesArea(rule, userZona, userRegion, userDepo) {
 
 **Data:**
 ```csv
-loyalty_class_code,zone_codes,region_codes,depo_codes,target_monthly,cashback_percentage,priority
-A,ZONA1,all,all,50000000,1.0,10
-A,ZONA2,all,all,60000000,1.2,10
-A,all,all,all,50000000,1.0,0
+loyalty_class_code,store_type,zone_codes,region_codes,depo_codes,target_monthly,cashback_percentage,priority
+A,all,ZONA1,all,all,50000000,1.0,10
+A,grosir,ZONA2,all,all,60000000,1.2,10
+A,retail,ZONA2,all,all,55000000,1.1,10
+A,all,all,all,all,50000000,1.0,0
 ```
 
 **Result:**

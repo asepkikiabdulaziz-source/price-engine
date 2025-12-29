@@ -23,7 +23,11 @@ import {
     loadGroupPromoTiers,
     loadInvoiceDiscounts,
     loadFreeProductPromos,
-    batchGetProductPrincipals
+    batchGetProductPrincipals,
+    loadLoyaltyClasses,
+    loadLoyaltyAvailability,
+    isLoyaltyClassAvailable,
+    resolveLoyaltyRule
 } from './database.js';
 import { calculateTotal } from './calculation.js';
 
@@ -165,6 +169,51 @@ function setupEventListeners() {
     // Load regions on page load
     loadRegionsForLogin();
     
+    // Store type change - trigger recalculation and reload data
+    const storeTypeEl = document.getElementById('store-type');
+    if (storeTypeEl) {
+        storeTypeEl.addEventListener('change', async () => {
+            const selectedStoreType = storeTypeEl.value;
+            
+            // Handle loyalty dropdown: enable/disable based on store type
+            const loyaltyClassEl = document.getElementById('loyalty-class');
+            if (loyaltyClassEl) {
+                if (selectedStoreType === 'retail') {
+                    // Disable dan clear jika retail (loyalty hanya untuk grosir)
+                    loyaltyClassEl.disabled = true;
+                    loyaltyClassEl.value = '';
+                    loyaltyClassEl.innerHTML = '<option value="">Loyalty tidak berlaku untuk Retail</option>';
+                } else {
+                    // Enable dan populate jika grosir
+                    loyaltyClassEl.disabled = false;
+                    await populateLoyaltyClassDropdown();
+                }
+            }
+            
+            // Reload calculation data when store type changes
+            if (currentUser) {
+                await loadCalculationData();
+                // Reload promos data with new store type filter
+                await loadPromosData();
+                // Auto-recalculate if cart has items
+                if (cart && cart.size > 0) {
+                    handleCalculate();
+                }
+            }
+        });
+    }
+    
+    // Loyalty class change - trigger recalculation
+    const loyaltyClassEl = document.getElementById('loyalty-class');
+    if (loyaltyClassEl) {
+        loyaltyClassEl.addEventListener('change', () => {
+            // Auto-recalculate when loyalty class changes
+            if (cart && cart.size > 0 && currentUser) {
+                handleCalculate();
+            }
+        });
+    }
+    
     // Payment method change - trigger recalculation
     const paymentMethodEl = document.getElementById('payment-method');
     if (paymentMethodEl) {
@@ -173,6 +222,50 @@ function setupEventListeners() {
             if (cart && cart.size > 0 && currentUser) {
                 handleCalculate();
             }
+        });
+    }
+    
+    // Voucher input - trigger recalculation on blur
+    const voucherInput = document.getElementById('voucher-input');
+    if (voucherInput) {
+        voucherInput.addEventListener('blur', () => {
+            // Format input value
+            const val = parseNumInput(voucherInput.value);
+            voucherInput.value = val === 0 ? '' : fmtNumInput(val);
+            // Recalculate final tagihan
+            updateFinalTagihan();
+        });
+        voucherInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.target.blur();
+            }
+        });
+        voucherInput.addEventListener('input', (e) => {
+            // Format while typing (optional, bisa dihapus jika mengganggu)
+            const val = parseNumInput(e.target.value);
+            if (val > 0) {
+                e.target.value = fmtNumInput(val);
+            }
+        });
+    }
+    
+    // Reset button
+    const resetButton = document.getElementById('cart-reset-button');
+    if (resetButton) {
+        resetButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (confirm('⚠️ Konfirmasi Reset\n\nAnda yakin ingin menghapus semua pesanan di keranjang?')) {
+                resetSimulation();
+            }
+        });
+    }
+    
+    // Lihat Faktur button
+    const lihatFakturButton = document.getElementById('cart-lihat-faktur-button');
+    if (lihatFakturButton) {
+        lihatFakturButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            showFakturModal();
         });
     }
 }
@@ -452,57 +545,250 @@ function displayUserInfo(user) {
     const userInfoDiv = document.getElementById('header-user-info');
     if (!userInfoDiv) return;
     
-    // Tampilkan user info
-    document.getElementById('user-name').textContent = user.full_name || '-';
-    document.getElementById('user-depo').textContent = user.depo_name || '-';
-    document.getElementById('user-region').textContent = user.region_name || '-';
-    document.getElementById('user-zona').textContent = user.zona || '-';
-    document.getElementById('user-div-sls').textContent = user.div_sls || '-';
+    // Format sederhana dengan separator pipe
+    const userName = user.full_name || '-';
+    const userDepo = user.depo_name || '-';
+    const userRegion = user.region_name || '-';
+    const userZona = user.zona || '-';
+    const userDiv = user.div_sls || '-';
+    
+    const userInfoSimple = document.getElementById('user-info-simple');
+    if (userInfoSimple) {
+        userInfoSimple.textContent = `${userName} | ${userDepo} | ${userRegion} | ${userZona} | ${userDiv}`;
+    }
     
     userInfoDiv.style.display = 'flex';
 }
 
 /**
  * Setup store type options berdasarkan div_sls
- * - AEPDA: hanya GROSIR
- * - AEGDA: GROSIR atau RETAIL
- * - TX2DA: hanya RETAIL
+ * - AEPDA: hanya GROSIR (disable Retail option)
+ * - Selain AEPDA: bisa GROSIR atau RETAIL
  */
 function setupStoreTypeByDivSls(divSls) {
-    const storeRetail = document.getElementById('store-retail');
-    const storeGrosir = document.getElementById('store-grosir');
+    const storeTypeSelect = document.getElementById('store-type');
     
-    if (!storeRetail || !storeGrosir) {
-        console.warn('Store type radio buttons not found');
+    if (!storeTypeSelect) {
+        console.warn('Store type select not found');
         return;
     }
     
-    // Reset semua ke enabled
-    storeRetail.disabled = false;
-    storeGrosir.disabled = false;
-    storeRetail.closest('label').style.opacity = '1';
-    storeGrosir.closest('label').style.opacity = '1';
+    // Get Retail option
+    const retailOption = storeTypeSelect.querySelector('option[value="retail"]');
+    
+    if (!retailOption) {
+        console.warn('Retail option not found');
+        return;
+    }
+    
+    // Reset: enable Retail option
+    retailOption.disabled = false;
+    retailOption.style.opacity = '1';
     
     // Set berdasarkan div_sls
     if (divSls === 'AEPDA') {
-        // Hanya GROSIR
-        storeRetail.disabled = true;
-        storeRetail.closest('label').style.opacity = '0.5';
-        storeGrosir.checked = true; // Auto-select grosir
+        // Hanya GROSIR - disable Retail option
+        retailOption.disabled = true;
+        retailOption.style.opacity = '0.5';
+        // Set default ke Grosir jika belum dipilih
+        if (storeTypeSelect.value === 'retail') {
+            storeTypeSelect.value = 'grosir';
+        }
         console.log('✅ Store type: GROSIR only (AEPDA)');
-    } else if (divSls === 'AEGDA') {
-        // Bisa GROSIR atau RETAIL
-        // Tidak disable apapun, user bisa pilih
-        console.log('✅ Store type: GROSIR or RETAIL (AEGDA)');
-    } else if (divSls === 'TX2DA') {
-        // Hanya RETAIL
-        storeGrosir.disabled = true;
-        storeGrosir.closest('label').style.opacity = '0.5';
-        storeRetail.checked = true; // Auto-select retail
-        console.log('✅ Store type: RETAIL only (TX2DA)');
     } else {
-        console.warn('⚠️ Unknown div_sls:', divSls, '- allowing both store types');
+        // Bisa GROSIR atau RETAIL - enable semua
+        // Retail option sudah di-enable di atas
+        console.log(`✅ Store type: GROSIR or RETAIL available (${divSls || 'default'})`);
     }
+    
+    // Setup loyalty dropdown setelah store type di-set
+    populateLoyaltyClassDropdown();
+}
+
+/**
+ * Populate loyalty class dropdown
+ * Filter berdasarkan store_type (hanya grosir) dan availability rules
+ */
+async function populateLoyaltyClassDropdown() {
+    const loyaltyClassEl = document.getElementById('loyalty-class');
+    if (!loyaltyClassEl) {
+        console.warn('Loyalty class dropdown not found');
+        return;
+    }
+    
+    // Get selected store type
+    const storeTypeEl = document.getElementById('store-type');
+    const selectedStoreType = storeTypeEl ? storeTypeEl.value : 'grosir';
+    
+    // Reset dropdown
+    loyaltyClassEl.innerHTML = '<option value="">Memuat...</option>';
+    loyaltyClassEl.disabled = true;
+    
+    // Loyalty hanya berlaku untuk grosir
+    if (selectedStoreType !== 'grosir') {
+        loyaltyClassEl.innerHTML = '<option value="">Loyalty tidak berlaku untuk Retail</option>';
+        return;
+    }
+    
+    // Validasi data sudah di-load
+    if (!currentUser || loyaltyClasses.length === 0 || loyaltyAvailabilityRules.length === 0) {
+        loyaltyClassEl.innerHTML = '<option value="">Data loyalty belum dimuat</option>';
+        return;
+    }
+    
+    try {
+        const userZona = currentUser.zona || null;
+        const userRegion = currentUser.region_name || null;
+        const userDepo = currentUser.depo_id || null;
+        
+        // Filter loyalty classes yang available untuk area user dan store_type grosir
+        const availableClasses = loyaltyClasses.filter(loyaltyClass => {
+            // Filter store_type: hanya 'grosir' atau 'all'
+            if (loyaltyClass.store_type !== 'grosir' && loyaltyClass.store_type !== 'all') {
+                return false;
+            }
+            
+            // Cek availability
+            return isLoyaltyClassAvailable(
+                loyaltyClass.code,
+                loyaltyAvailabilityRules,
+                userZona,
+                userRegion,
+                userDepo
+            );
+        });
+        
+        if (availableClasses.length === 0) {
+            loyaltyClassEl.innerHTML = '<option value="">Tidak ada kelas loyalty tersedia</option>';
+            return;
+        }
+        
+        // Populate dropdown (hanya class_code, urutkan berdasarkan target_monthly descending)
+        const classesWithRules = availableClasses
+            .map(loyaltyClass => {
+                const rule = resolveLoyaltyRule(loyaltyClass.code, selectedStoreType, loyaltyClasses);
+                if (rule) {
+                    return {
+                        code: loyaltyClass.code,
+                        targetMonthly: rule.target_monthly
+                    };
+                }
+                return null;
+            })
+            .filter(item => item !== null)
+            .sort((a, b) => b.targetMonthly - a.targetMonthly); // Sort descending by target_monthly
+        
+        loyaltyClassEl.innerHTML = '<option value="">-- Pilih Kelas --</option>';
+        classesWithRules.forEach(item => {
+            const option = document.createElement('option');
+            option.value = item.code;
+            option.textContent = item.code; // Hanya class_code saja
+            loyaltyClassEl.appendChild(option);
+        });
+        
+        loyaltyClassEl.disabled = false;
+        console.log(`✅ Populated ${availableClasses.length} loyalty classes`);
+        
+    } catch (error) {
+        console.error('Error populating loyalty class dropdown:', error);
+        loyaltyClassEl.innerHTML = '<option value="">Error memuat kelas loyalty</option>';
+    }
+}
+
+/**
+ * Check if cart has products from principal KSNI
+ * @returns {boolean} True if cart contains at least one KSNI product
+ */
+function checkIfCartHasKSNI() {
+    if (!cart || cart.size === 0) return false;
+    
+    for (const [productId, item] of cart) {
+        const product = productDataMap.get(productId);
+        if (product && product.principal_id === 'KSNI') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Calculate loyalty cashback
+ * @param {Object} result - Calculation result from calculateTotal()
+ * @param {string} loyaltyClassCode - Selected loyalty class code
+ * @param {string} storeType - Selected store type
+ * @param {string} userZona - User's zona
+ * @param {string} userRegion - User's region
+ * @param {string} userDepo - User's depo
+ * @returns {Object} Cashback calculation result
+ */
+function calculateLoyaltyCashback(result, loyaltyClassCode, storeType, userZona, userRegion, userDepo) {
+    // 1. Validasi store type = grosir
+    if (storeType !== 'grosir') {
+        return {
+            cashbackAmount: 0,
+            cashbackPercentage: 0,
+            isAvailable: false,
+            reason: 'Loyalty hanya berlaku untuk Grosir'
+        };
+    }
+    
+    // 2. Validasi loyalty class dipilih
+    if (!loyaltyClassCode || loyaltyClassCode.trim() === '') {
+        return {
+            cashbackAmount: 0,
+            cashbackPercentage: 0,
+            isAvailable: false,
+            reason: 'Kelas loyalty belum dipilih'
+        };
+    }
+    
+    // 3. Validasi principal KSNI
+    if (!checkIfCartHasKSNI()) {
+        return {
+            cashbackAmount: 0,
+            cashbackPercentage: 0,
+            isAvailable: false,
+            reason: 'Cashback hanya untuk principal KSNI'
+        };
+    }
+    
+    // 4. Cek availability
+    if (!isLoyaltyClassAvailable(loyaltyClassCode, loyaltyAvailabilityRules, userZona, userRegion, userDepo)) {
+        return {
+            cashbackAmount: 0,
+            cashbackPercentage: 0,
+            isAvailable: false,
+            reason: 'Kelas loyalty tidak tersedia untuk area ini'
+        };
+    }
+    
+    // 5. Resolve rule
+    const rule = resolveLoyaltyRule(loyaltyClassCode, storeType, loyaltyClasses);
+    if (!rule) {
+        return {
+            cashbackAmount: 0,
+            cashbackPercentage: 0,
+            isAvailable: false,
+            reason: 'Rule loyalty tidak ditemukan'
+        };
+    }
+    
+    // 6. Hitung cashback dari totalNett (setelah semua diskon)
+    const totalNett = result.totalNett || 0;
+    const cashbackAmount = totalNett * (rule.cashback_percentage / 100);
+    
+    // Get loyalty class name
+    const loyaltyClass = loyaltyClasses.find(c => c.code === loyaltyClassCode);
+    const loyaltyClassName = loyaltyClass ? loyaltyClass.name : loyaltyClassCode;
+    
+    return {
+        loyaltyClassCode: loyaltyClassCode,
+        loyaltyClassName: loyaltyClassName,
+        cashbackPercentage: rule.cashback_percentage,
+        cashbackAmount: Math.round(cashbackAmount), // Round to integer
+        targetMonthly: rule.target_monthly,
+        isAvailable: true
+    };
 }
 
 async function loadAppContent() {
@@ -523,6 +809,9 @@ async function loadAppContent() {
         
         // Load and display promos
         await loadPromosData();
+        
+        // Populate loyalty dropdown (setelah data di-load)
+        await populateLoyaltyClassDropdown();
         
         // Setup add to cart handlers
         setupAddToCart();
@@ -569,8 +858,8 @@ async function loadProductsData() {
         console.log(`📂 Loaded ${productGroups?.length || 0} product groups`);
         
         // Load product group availability rules
-        const availabilityRules = await loadProductGroupAvailability();
-        console.log(`📋 Loaded ${availabilityRules?.length || 0} availability rules`);
+        productGroupAvailabilityRules = await loadProductGroupAvailability();
+        console.log(`📋 Loaded ${productGroupAvailabilityRules?.length || 0} availability rules`);
         
         // Filter groups based on availability rules (user's zona, region, depo)
         const userZona = currentUser?.zona || null;
@@ -580,7 +869,7 @@ async function loadProductsData() {
         const availableGroups = productGroups.filter(group => {
             return isProductGroupAvailable(
                 group.code,
-                availabilityRules,
+                productGroupAvailabilityRules,
                 userZona,
                 userRegion,
                 userDepo
@@ -595,7 +884,7 @@ async function loadProductsData() {
                 region: userRegion,
                 depo: userDepo
             });
-            console.log('Availability rules:', availabilityRules);
+            console.log('Availability rules:', productGroupAvailabilityRules);
         }
         
         // Load product group members
@@ -691,7 +980,7 @@ async function loadProductsData() {
         console.log(`📋 Loaded ${promoAvailabilityRules?.length || 0} promo availability rules`);
         
         // Get selected store type
-        const storeTypeEl = document.querySelector('input[name="store-type"]:checked');
+        const storeTypeEl = document.getElementById('store-type');
         const selectedStoreType = storeTypeEl ? storeTypeEl.value : 'grosir'; // default grosir
         console.log(`🏪 Selected store type: ${selectedStoreType}`);
         
@@ -815,10 +1104,24 @@ async function loadCalculationData(products) {
         freeProductPromos = await loadFreeProductPromos();
         console.log(`🎁 Loaded ${freeProductPromos?.length || 0} free product promos`);
         
-        // Build principal map for products
-        const productCodes = products.map(p => p.code);
-        principalMap = await batchGetProductPrincipals(productCodes);
-        console.log(`🔗 Mapped ${principalMap.size} products to principals`);
+        // Load loyalty data
+        loyaltyClasses = await loadLoyaltyClasses();
+        loyaltyAvailabilityRules = await loadLoyaltyAvailability();
+        console.log(`🎯 Loaded ${loyaltyClasses?.length || 0} loyalty classes and ${loyaltyAvailabilityRules?.length || 0} availability rules`);
+        
+        // Build principal map for products (only if products is provided)
+        if (products && Array.isArray(products) && products.length > 0) {
+            const productCodes = products.map(p => p.code);
+            principalMap = await batchGetProductPrincipals(productCodes);
+            console.log(`🔗 Mapped ${principalMap.size} products to principals`);
+        } else if (productDataMap && productDataMap.size > 0) {
+            // Fallback: use productDataMap if products not provided
+            const productCodes = Array.from(productDataMap.keys());
+            principalMap = await batchGetProductPrincipals(productCodes);
+            console.log(`🔗 Mapped ${principalMap.size} products to principals (from productDataMap)`);
+        } else {
+            console.warn('⚠️ No products available for principal mapping');
+        }
         
     } catch (error) {
         console.error('Error loading calculation data:', error);
@@ -834,7 +1137,7 @@ async function loadPromosData() {
         console.log('📋 Loading promos data for display...');
         
         // Get user info and store type
-        const storeTypeEl = document.querySelector('input[name="store-type"]:checked');
+        const storeTypeEl = document.getElementById('store-type');
         const selectedStoreType = storeTypeEl ? storeTypeEl.value : 'grosir';
         const userZona = currentUser?.zona || null;
         const userRegion = currentUser?.region_name || null;
@@ -1040,11 +1343,14 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
     
     // Format currency
     const formatCurrency = (amount) => {
+        // Bulatkan ke bilangan bulat sebelum format
+        const roundedAmount = Math.round(amount || 0);
         return new Intl.NumberFormat('id-ID', {
             style: 'currency',
             currency: 'IDR',
-            minimumFractionDigits: 0
-        }).format(amount);
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(roundedAmount);
     };
     
     // 1. Principal Discount Promos with tiers (Format seperti kalkulator)
@@ -1213,6 +1519,71 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
         html += '</div></div>';
     }
     
+    // 6. Loyalty Rules (hanya untuk Grosir)
+    const storeTypeEl = document.getElementById('store-type');
+    const selectedStoreType = storeTypeEl ? storeTypeEl.value : 'grosir';
+    
+    if (selectedStoreType === 'grosir' && loyaltyClasses && loyaltyClasses.length > 0 && loyaltyAvailabilityRules && loyaltyAvailabilityRules.length > 0) {
+        const userZona = currentUser?.zona || null;
+        const userRegion = currentUser?.region_name || null;
+        const userDepo = currentUser?.depo_id || null;
+        
+        // Filter loyalty classes yang available untuk area user dan store_type grosir
+        const availableLoyaltyClasses = loyaltyClasses.filter(loyaltyClass => {
+            // Filter store_type: hanya 'grosir' atau 'all'
+            if (loyaltyClass.store_type !== 'grosir' && loyaltyClass.store_type !== 'all') {
+                return false;
+            }
+            
+            // Cek availability
+            return isLoyaltyClassAvailable(
+                loyaltyClass.code,
+                loyaltyAvailabilityRules,
+                userZona,
+                userRegion,
+                userDepo
+            );
+        });
+        
+        if (availableLoyaltyClasses.length > 0) {
+            // Map dan resolve rules untuk semua classes
+            const loyaltyRulesWithData = availableLoyaltyClasses
+                .map(loyaltyClass => {
+                    const rule = resolveLoyaltyRule(loyaltyClass.code, selectedStoreType, loyaltyClasses);
+                    if (rule) {
+                        return {
+                            classCode: loyaltyClass.code,
+                            targetMonthly: rule.target_monthly,
+                            cashbackPercentage: rule.cashback_percentage
+                        };
+                    }
+                    return null;
+                })
+                .filter(item => item !== null)
+                .sort((a, b) => b.targetMonthly - a.targetMonthly); // Sort descending by target_monthly
+            
+            if (loyaltyRulesWithData.length > 0) {
+                html += '<div class="promo-section-type">';
+                html += '<h3>🎯 Program Loyalty (Cashback)</h3>';
+                html += '<div class="promo-list">';
+                html += '<table class="promo-tier-table">';
+                html += '<thead><tr><th>Kelas</th><th>Target Bulanan</th><th>Cashback</th></tr></thead>';
+                html += '<tbody>';
+                
+                loyaltyRulesWithData.forEach(item => {
+                    html += `<tr>
+                        <td><strong>${item.classCode}</strong></td>
+                        <td><strong>${formatCurrency(item.targetMonthly)}</strong></td>
+                        <td style="color: var(--success-color, #28a745); font-weight: bold;">${item.cashbackPercentage}%</td>
+                    </tr>`;
+                });
+                
+                html += '</tbody></table>';
+                html += '</div></div>';
+            }
+        }
+    }
+    
     // If no promos available
     if (html === '') {
         html = '<p>Tidak ada promosi yang tersedia saat ini.</p>';
@@ -1329,11 +1700,14 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
                     
                     const hasQty = qtyKrt > 0 || qtyBox > 0;
                     const formatCurrency = (amount) => {
+                        // Bulatkan ke bilangan bulat sebelum format
+                        const roundedAmount = Math.round(amount || 0);
                         return new Intl.NumberFormat('id-ID', {
                             style: 'currency',
                             currency: 'IDR',
-                            minimumFractionDigits: 0
-                        }).format(amount);
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0
+                        }).format(roundedAmount);
                     };
                     
                     html += `
@@ -1487,11 +1861,14 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
             
             const hasQty = qtyKrt > 0 || qtyBox > 0;
             const formatCurrency = (amount) => {
+                // Bulatkan ke bilangan bulat sebelum format
+                const roundedAmount = Math.round(amount || 0);
                 return new Intl.NumberFormat('id-ID', {
                     style: 'currency',
                     currency: 'IDR',
-                    minimumFractionDigits: 0
-                }).format(amount);
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0
+                }).format(roundedAmount);
             };
             
             html += `
@@ -1628,8 +2005,11 @@ let groupPromoTiers = [];
 let invoiceDiscounts = [];
 let freeProductPromos = [];
 let promoAvailabilityRules = [];
+let productGroupAvailabilityRules = []; // Store product group availability rules
 let bundlePromosList = []; // Store bundle promos for calculation
 let bundlePromoGroupsList = []; // Store bundle promo groups for calculation
+let loyaltyClasses = []; // Store loyalty classes
+let loyaltyAvailabilityRules = []; // Store loyalty availability rules
 
 // Setup event listeners for detail harga buttons
 function setupDetailHargaListeners() {
@@ -2033,7 +2413,6 @@ function renderKeranjang() {
     });
     
     let html = '';
-    let totalNett = 0; // TODO: Calculate actual total from prices
     
     // Render each group (eceran -> products)
     orderedGroups.forEach(groupData => {
@@ -2050,15 +2429,33 @@ function renderKeranjang() {
     
     cartItemsEl.innerHTML = html;
     
-    // Update summary bar total
+    // Update summary bar total menggunakan nilai dari lastCalculationResult yang sudah dihitung
     const summaryBarTotal = document.getElementById('summary-bar-total');
     if (summaryBarTotal) {
-        const totalFormatted = new Intl.NumberFormat('id-ID', {
-            style: 'currency',
-            currency: 'IDR',
-            minimumFractionDigits: 0
-        }).format(totalNett);
-        summaryBarTotal.textContent = totalFormatted;
+        // Gunakan nilai dari lastCalculationResult yang sudah dihitung dengan benar
+        const totalNettValue = window.lastCalculationResult?.totalNettPrice || window.lastCalculationResult?.totalNett || 0;
+        
+        const formatCurrency = (amount) => {
+            const roundedAmount = Math.round(amount || 0);
+            return new Intl.NumberFormat('id-ID', {
+                style: 'currency',
+                currency: 'IDR',
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+            }).format(roundedAmount);
+        };
+        
+        summaryBarTotal.textContent = formatCurrency(totalNettValue);
+        
+        // Debug logging
+        if (totalNettValue === 0 && window.lastCalculationResult && (window.lastCalculationResult.basePrice || window.lastCalculationResult.totalBasePrice) > 0) {
+            console.warn('⚠️ renderKeranjang: totalNettValue is 0 but basePrice exists:', {
+                totalNettPrice: window.lastCalculationResult.totalNettPrice,
+                totalNett: window.lastCalculationResult.totalNett,
+                basePrice: window.lastCalculationResult.basePrice,
+                totalBasePrice: window.lastCalculationResult.totalBasePrice
+            });
+        }
     }
 }
 
@@ -2086,11 +2483,14 @@ function renderCartItem(productId, item) {
     
     // Get calculation result untuk subtotal nett dan promo info
     const formatCurrency = (amount) => {
+        // Bulatkan ke bilangan bulat sebelum format
+        const roundedAmount = Math.round(amount || 0);
         return new Intl.NumberFormat('id-ID', {
             style: 'currency',
             currency: 'IDR',
-            minimumFractionDigits: 0
-        }).format(amount);
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(roundedAmount);
     };
     
     let subtotalNettHtml = '';
@@ -2179,7 +2579,7 @@ async function handleCalculate() {
         }
         
         // Get selected store type
-        const storeTypeEl = document.querySelector('input[name="store-type"]:checked');
+        const storeTypeEl = document.getElementById('store-type');
         const selectedStoreType = storeTypeEl ? storeTypeEl.value : 'grosir';
         
         // Get payment method
@@ -2227,6 +2627,8 @@ async function handleCalculate() {
             invoiceDiscounts,
             freeProductPromos,
             promoAvailabilityRules,
+            productGroupAvailabilityRules,
+            isProductGroupAvailable,
             storeType: selectedStoreType,
             userZona,
             userRegion,
@@ -2237,13 +2639,69 @@ async function handleCalculate() {
         
         // Update UI with calculation result
         console.log('📊 Calculation result:', result);
+        console.log('📊 Total Nett values:', {
+            totalNett: result.totalNett,
+            totalNettPrice: result.totalNettPrice,
+            basePrice: result.basePrice,
+            principalDiscount: result.principalDiscount,
+            groupPromoDiscount: result.groupPromoDiscount,
+            bundlePromoDiscount: result.bundlePromoDiscount,
+            invoiceDiscount: result.invoiceDiscount
+        });
         updateCalculationDisplay(result);
         
         // Calculate per-item details dan simpan di result
         calculateItemDetails(result);
         
+        // Calculate loyalty cashback
+        const loyaltyClassEl = document.getElementById('loyalty-class');
+        const selectedLoyaltyClass = loyaltyClassEl ? loyaltyClassEl.value : '';
+        const loyaltyCashback = calculateLoyaltyCashback(
+            result,
+            selectedLoyaltyClass,
+            selectedStoreType,
+            userZona,
+            userRegion,
+            userDepo
+        );
+        
+        // Add loyalty cashback to result
+        result.loyaltyCashback = loyaltyCashback;
+        
         // Store result for detail modal (SETELAH calculateItemDetails agar data lengkap)
         window.lastCalculationResult = result;
+        
+        // Update summary bar lagi setelah semua update selesai (untuk memastikan)
+        const formatCurrency = (amount) => {
+            const roundedAmount = Math.round(amount || 0);
+            return new Intl.NumberFormat('id-ID', {
+                style: 'currency',
+                currency: 'IDR',
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+            }).format(roundedAmount);
+        };
+        const summaryBarTotal = document.getElementById('summary-bar-total');
+        if (summaryBarTotal) {
+            // Gunakan totalNettPrice atau totalNett yang sudah dihitung dengan benar
+            const totalNettValue = result.totalNettPrice || result.totalNett || 0;
+            
+            console.log('🔄 Final update summary bar:', {
+                totalNettValue,
+                totalNettPrice: result.totalNettPrice,
+                totalNett: result.totalNett,
+                basePrice: result.basePrice,
+                principalDiscount: result.principalDiscount,
+                groupPromoDiscount: result.groupPromoDiscount,
+                bundlePromoDiscount: result.bundlePromoDiscount,
+                invoiceDiscount: result.invoiceDiscount,
+                calculation: `${result.basePrice} - ${result.principalDiscount} - ${result.groupPromoDiscount} - ${result.bundlePromoDiscount} - ${result.invoiceDiscount} = ${totalNettValue}`,
+                elementFound: !!summaryBarTotal
+            });
+            summaryBarTotal.textContent = formatCurrency(totalNettValue);
+        } else {
+            console.warn('⚠️ summary-bar-total element not found!');
+        }
         
         // Update harga nett per product item
         updateProductNettPrices(result);
@@ -2253,6 +2711,9 @@ async function handleCalculate() {
         
         // Re-render cart untuk update subtotal nett dan promo info
         renderKeranjang();
+        
+        // Update final tagihan setelah semua perhitungan selesai
+        updateFinalTagihan();
         
     } catch (error) {
         console.error('❌ Error calculating total:', error);
@@ -2277,11 +2738,14 @@ async function handleCalculate() {
 function updateCalculationDisplay(result) {
     // Format currency
     const formatCurrency = (amount) => {
+        // Bulatkan ke bilangan bulat sebelum format
+        const roundedAmount = Math.round(amount || 0);
         return new Intl.NumberFormat('id-ID', {
             style: 'currency',
             currency: 'IDR',
-            minimumFractionDigits: 0
-        }).format(amount);
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(roundedAmount);
     };
     
     // Update base price
@@ -2329,10 +2793,253 @@ function updateCalculationDisplay(result) {
     // Update summary bar
     const summaryBarTotal = document.getElementById('summary-bar-total');
     if (summaryBarTotal) {
-        summaryBarTotal.textContent = formatCurrency(result.totalNettPrice || result.totalNett || 0);
+        // Gunakan totalNettPrice atau totalNett yang sudah dihitung dengan benar
+        const totalNettValue = result.totalNettPrice || result.totalNett || 0;
+        
+        summaryBarTotal.textContent = formatCurrency(totalNettValue);
+        console.log('📊 Summary bar updated:', {
+            totalNettPrice: result.totalNettPrice,
+            totalNett: result.totalNett,
+            finalValue: totalNettValue,
+            basePrice: result.basePrice,
+            principalDiscount: result.principalDiscount,
+            groupPromoDiscount: result.groupPromoDiscount,
+            bundlePromoDiscount: result.bundlePromoDiscount,
+            invoiceDiscount: result.invoiceDiscount,
+            calculation: `${result.basePrice} - ${result.principalDiscount} - ${result.groupPromoDiscount} - ${result.bundlePromoDiscount} - ${result.invoiceDiscount} = ${totalNettValue}`
+        });
     }
     
+    // Update final tagihan (setelah voucher)
+    updateFinalTagihan();
+    
     console.log('✅ Calculation result updated:', result);
+}
+
+/**
+ * Update final tagihan setelah dikurangi voucher
+ */
+function updateFinalTagihan() {
+    const finalTagihanEl = document.getElementById('final-tagihan');
+    if (!finalTagihanEl) return;
+    
+    // Get total nett dari lastCalculationResult
+    const totalNett = window.lastCalculationResult?.totalNettPrice || window.lastCalculationResult?.totalNett || 0;
+    
+    // Get voucher value
+    const voucherInput = document.getElementById('voucher-input');
+    const nominalVoucher = voucherInput ? parseNumInput(voucherInput.value) : 0;
+    
+    // Calculate final tagihan
+    const finalTagihan = Math.max(0, totalNett - nominalVoucher);
+    
+    const formatCurrency = (amount) => {
+        const roundedAmount = Math.round(amount || 0);
+        return new Intl.NumberFormat('id-ID', {
+            style: 'currency',
+            currency: 'IDR',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(roundedAmount);
+    };
+    
+    finalTagihanEl.innerHTML = `<strong>${formatCurrency(finalTagihan)}</strong>`;
+    
+    console.log('💰 Final tagihan updated:', {
+        totalNett,
+        nominalVoucher,
+        finalTagihan
+    });
+}
+
+/**
+ * Reset simulation - clear cart and reset voucher
+ */
+function resetSimulation() {
+    // Clear cart
+    cart.clear();
+    
+    // Reset voucher input
+    const voucherInput = document.getElementById('voucher-input');
+    if (voucherInput) {
+        voucherInput.value = '';
+    }
+    
+    // Reset payment method to COD
+    const paymentMethodEl = document.getElementById('payment-method');
+    if (paymentMethodEl) {
+        paymentMethodEl.value = 'COD';
+    }
+    
+    // Re-render cart
+    renderKeranjang();
+    
+    // Reset calculation display
+    updateCalculationDisplay({
+        totalBasePrice: 0,
+        principalDiscount: 0,
+        groupPromoDiscount: 0,
+        bundlePromoDiscount: 0,
+        freeProductPromo: 0,
+        invoiceDiscount: 0,
+        totalNettPrice: 0
+    });
+    
+    // Update final tagihan
+    updateFinalTagihan();
+    
+    // Update summary bar
+    const summaryBarTotal = document.getElementById('summary-bar-total');
+    if (summaryBarTotal) {
+        summaryBarTotal.textContent = 'Rp 0';
+    }
+    
+    console.log('🔄 Simulation reset');
+}
+
+/**
+ * Show faktur modal
+ */
+function showFakturModal() {
+    if (cart.size === 0) {
+        alert('❌ Keranjang kosong, tidak bisa membuat faktur.');
+        return;
+    }
+    
+    const result = window.lastCalculationResult;
+    if (!result) {
+        alert('❌ Data perhitungan belum tersedia. Silakan hitung terlebih dahulu.');
+        return;
+    }
+    
+    // Get voucher value
+    const voucherInput = document.getElementById('voucher-input');
+    const nominalVoucher = voucherInput ? parseNumInput(voucherInput.value) : 0;
+    
+    // Get user info
+    const userRegion = currentUser?.region_name || currentUser?.region || 'N/A';
+    const userDepo = currentUser?.depo_name || currentUser?.depo || 'N/A';
+    // Extract kode sales from login_code (format: depo_id-kode_sales) or use kode_sales field
+    const loginCode = currentUser?.login_code || '';
+    const kodeSalesFromLogin = loginCode.includes('-') ? loginCode.split('-')[1] : null;
+    const userSales = currentUser?.kode_sales || kodeSalesFromLogin || 'N/A';
+    const userName = currentUser?.full_name || currentUser?.nama || currentUser?.NAMA || currentUser?.name || 'N/A';
+    
+    // Build faktur HTML
+    let fakturHtml = `
+        <div class="faktur-header-info">
+            <div class="info-line"><span class="info-label">Region</span><span class="info-separator">:</span><span>${userRegion}</span></div>
+            <div class="info-line"><span class="info-label">Depo</span><span class="info-separator">:</span><span>${userDepo}</span></div>
+            <div class="info-line"><span class="info-label">Sales</span><span class="info-separator">:</span><span>${userName} (${userSales})</span></div>
+        </div>
+        <table class="faktur-table">
+            <thead>
+                <tr>
+                    <th class="col-nama">Nama Produk</th>
+                    <th class="col-qty">Qty (Krt)</th>
+                    <th class="col-price">Harga Nett / Krt</th>
+                    <th class="col-total">Subtotal Nett</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    // Add items
+    result.items.forEach(item => {
+        const product = item.product || productDataMap.get(item.productId);
+        if (!product) return;
+        
+        // Get qtyKrtTotal from item (stored in calculateItemDetails) or calculate from cart
+        let qtyKrtTotal = item.qtyKrtTotal;
+        if (!qtyKrtTotal || qtyKrtTotal === 0) {
+            // Fallback: calculate from cart
+            const cartItem = cart.get(item.productId);
+            if (cartItem) {
+                const qtyKrt = cartItem.quantities?.krt || cartItem.quantities?.unit_1 || 0;
+                const qtyBox = cartItem.quantities?.box || cartItem.quantities?.unit_2 || 0;
+                const ratio = product.ratio_unit_2_per_unit_1 || 1;
+                qtyKrtTotal = qtyKrt + (qtyBox / ratio);
+            }
+        }
+        
+        const hargaNettPerKrt = item.hargaNettPerKrt || (qtyKrtTotal > 0 ? (item.finalNett / qtyKrtTotal) : 0);
+        const subtotalNett = item.finalNett || 0;
+        
+        const formatCurrency = (amount) => {
+            const roundedAmount = Math.round(amount || 0);
+            return new Intl.NumberFormat('id-ID', {
+                style: 'currency',
+                currency: 'IDR',
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+            }).format(roundedAmount);
+        };
+        
+        fakturHtml += `
+            <tr>
+                <td class="item-name">${product.code || item.productId} - ${product.name || 'N/A'}</td>
+                <td class="item-qty">${qtyKrtTotal.toFixed(2)}</td>
+                <td class="item-price-nett">${formatCurrency(hargaNettPerKrt)}</td>
+                <td class="item-total">${formatCurrency(subtotalNett)}</td>
+            </tr>
+        `;
+    });
+    
+    // Calculate totals
+    const totalNett = result.totalNettPrice || result.totalNett || 0;
+    const cashback = result.loyaltyCashback || {};
+    const cashbackAmount = cashback.isAvailable ? (cashback.cashbackAmount || 0) : 0;
+    const finalTagihan = Math.max(0, totalNett - cashbackAmount - nominalVoucher);
+    
+    const formatCurrency = (amount) => {
+        const roundedAmount = Math.round(amount || 0);
+        return new Intl.NumberFormat('id-ID', {
+            style: 'currency',
+            currency: 'IDR',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(roundedAmount);
+    };
+    
+    fakturHtml += `</tbody></table>
+        <div class="faktur-summary">
+            <div class="summary-row"><span class="summary-label">Total Harga Dasar</span><span class="summary-value">${formatCurrency(result.basePrice || result.totalBasePrice || 0)}</span></div>
+            <div class="summary-row discount-row"><span class="summary-label">(-) Diskon Principal</span><span class="summary-value value-danger">- ${formatCurrency(result.principalDiscount || 0)}</span></div>
+            <div class="summary-row discount-row"><span class="summary-label">(-) Promo Grup Produk</span><span class="summary-value value-danger">- ${formatCurrency(result.groupPromoDiscount || 0)}</span></div>
+            <div class="summary-row discount-row"><span class="summary-label">(-) Promo Bundling</span><span class="summary-value value-danger">- ${formatCurrency(result.bundlePromoDiscount || 0)}</span></div>
+            <div class="summary-row discount-row"><span class="summary-label">(-) Diskon Invoice</span><span class="summary-value value-danger">- ${formatCurrency(result.invoiceDiscount || 0)}</span></div>
+            <div class="summary-row on-faktur-row" style="border-top: 2px solid #333;"><span class="summary-label">Total Harga Nett</span><span class="summary-value">${formatCurrency(totalNett)}</span></div>
+            ${(() => {
+                const cashback = result.loyaltyCashback || {};
+                if (cashback.isAvailable && cashback.cashbackAmount > 0) {
+                    return `
+                        <div class="summary-row discount-row" style="color:var(--success-color); font-weight:bold;">
+                            <span class="summary-label">(-) Cashback Loyalty (${cashback.loyaltyClassName || cashback.loyaltyClassCode})</span>
+                            <span class="summary-value value-danger">- ${formatCurrency(cashback.cashbackAmount)}</span>
+                        </div>
+                    `;
+                }
+                return '';
+            })()}
+            <div class="summary-row discount-row" style="color:var(--success-color); font-weight:bold;"><span class="summary-label">(-) Voucher</span><span class="summary-value value-danger">- ${formatCurrency(nominalVoucher)}</span></div>
+            <div class="summary-row grand-total" style="border-top: 2px solid #333; margin-top: 5px;"><span class="summary-label">FINAL TAGIHAN:</span><span class="summary-value">${formatCurrency(finalTagihan)}</span></div>
+        </div>
+    `;
+    
+    // Show modal (reuse price detail modal structure)
+    const modal = document.getElementById('price-detail-modal');
+    const modalTitle = document.getElementById('price-modal-title');
+    const modalDetails = document.getElementById('price-modal-details');
+    
+    if (modal && modalTitle && modalDetails) {
+        modalTitle.textContent = 'Simulasi Faktur';
+        modalDetails.innerHTML = fakturHtml;
+        modal.style.display = 'block';
+    } else {
+        // Fallback: use alert or create new modal
+        console.warn('⚠️ Price detail modal not found, using alert');
+        alert('Faktur:\n\nTotal Nett: ' + formatCurrency(totalNett) + '\nVoucher: -' + formatCurrency(nominalVoucher) + '\nFinal Tagihan: ' + formatCurrency(finalTagihan));
+    }
 }
 
 /**
@@ -2342,11 +3049,15 @@ function updateProductNettPrices(result) {
     if (!result || !result.items) return;
     
     const formatCurrency = (amount) => {
+        // Pastikan amount adalah angka valid dan bulatkan ke bilangan bulat
+        const numAmount = typeof amount === 'number' && !isNaN(amount) && isFinite(amount) ? amount : 0;
+        const roundedAmount = Math.round(numAmount);
         return new Intl.NumberFormat('id-ID', {
             style: 'currency',
             currency: 'IDR',
-            minimumFractionDigits: 0
-        }).format(amount);
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(roundedAmount);
     };
     
     // Create map untuk lookup item by productId
@@ -2420,9 +3131,35 @@ function updateProductNettPrices(result) {
         const itemInvoiceDiscount = item.itemInvoiceDiscount || 0;
         const finalNett = item.finalNett || 0;
         
-        // Calculate harga nett per krt (include fractional from boxes)
-        const qtyKrtTotal = qtyKrt + (qtyBox / ratio);
-        const hargaNettPerKrt = qtyKrtTotal > 0 ? finalNett / qtyKrtTotal : 0;
+        // Use hargaNettPerKrt yang sudah dihitung di calculateItemDetails untuk konsistensi
+        // Jika belum ada (undefined/null/NaN), hitung ulang sebagai fallback
+        let hargaNettPerKrt = item.hargaNettPerKrt;
+        if (hargaNettPerKrt === undefined || hargaNettPerKrt === null || isNaN(hargaNettPerKrt) || !isFinite(hargaNettPerKrt)) {
+            // Fallback: calculate harga nett per krt (include fractional from boxes)
+            const qtyKrtTotal = qtyKrt + (qtyBox / ratio);
+            if (qtyKrtTotal > 0 && !isNaN(finalNett) && isFinite(finalNett) && finalNett >= 0) {
+                hargaNettPerKrt = finalNett / qtyKrtTotal;
+            } else {
+                // Jika finalNett tidak valid, gunakan subtotal (basePrice) sebagai fallback
+                // Logika: jika semua diskon = 0, harga = basePrice
+                const basePrice = item.subtotal || item.subtotalAfterDiscount || 0;
+                hargaNettPerKrt = qtyKrtTotal > 0 ? basePrice / qtyKrtTotal : 0;
+            }
+        }
+        
+        // Pastikan hargaNettPerKrt tidak NaN atau negatif
+        if (isNaN(hargaNettPerKrt) || !isFinite(hargaNettPerKrt) || hargaNettPerKrt < 0) {
+            // Fallback ke harga per krt dari subtotal (basePrice)
+            const qtyKrtTotal = qtyKrt + (qtyBox / ratio);
+            const basePrice = item.subtotal || item.subtotalAfterDiscount || 0;
+            hargaNettPerKrt = qtyKrtTotal > 0 ? basePrice / qtyKrtTotal : 0;
+        }
+        
+        // Debug logging jika hargaNettPerKrt adalah 0 padahal seharusnya ada nilai
+        if (hargaNettPerKrt === 0 && finalNett > 0) {
+            const qtyKrtTotal = qtyKrt + (qtyBox / ratio);
+            console.warn(`  ⚠️ updateProductNettPrices: hargaNettPerKrt is 0 for product ${productId}: finalNett=${finalNett}, qtyKrtTotal=${qtyKrtTotal}, qtyKrt=${qtyKrt}, qtyBox=${qtyBox}, ratio=${ratio}, item.hargaNettPerKrt=${item.hargaNettPerKrt}`);
+        }
         
         // Update SEMUA pricing divs (bisa ada di bundle dan group)
         pricingDivs.forEach(pricingDiv => {
@@ -2458,7 +3195,8 @@ function calculateItemDetails(result) {
     const totalSubtotalAfterPrincipal = result.items.reduce((sum, it) => sum + it.subtotalAfterDiscount, 0);
 
     // Calculate total after all discounts (excluding invoice) for invoice proportion
-    const totalAfterOtherDiscountsGlobal = result.basePrice - result.principalDiscount - result.groupPromoDiscount - result.bundlePromoDiscount;
+    // Pastikan tidak negatif - jika semua promo tidak berlaku, ini = basePrice - principalDiscount
+    const totalAfterOtherDiscountsGlobal = Math.max(0, result.basePrice - (result.principalDiscount || 0) - (result.groupPromoDiscount || 0) - (result.bundlePromoDiscount || 0));
 
     // Calculate total qty for group promo proportion (per group)
     // Group promo discount harus dibagi berdasarkan qty, bukan subtotal
@@ -2522,54 +3260,125 @@ function calculateItemDetails(result) {
                 if (groupDiscountForThisGroup > 0) {
                     // Bagi group discount untuk group ini proporsional berdasarkan qty item
                     item.itemGroupPromoDiscount = groupDiscountForThisGroup * qtyProportionInGroup;
-                } else {
-                    // Fallback: estimasi berdasarkan proporsi qty (jika byGroup tidak tersedia)
-                    let totalQtyAllGroups = 0;
-                    groupQtyMap.forEach((qty, gc) => {
-                        totalQtyAllGroups += qty;
-                    });
-                    
-                    if (totalQtyAllGroups > 0) {
-                        const groupDiscountEstimate = result.groupPromoDiscount * (totalGroupQty / totalQtyAllGroups);
-                        item.itemGroupPromoDiscount = groupDiscountEstimate * qtyProportionInGroup;
-                    }
                 }
+                // TIDAK ADA FALLBACK - jika group tidak punya discount, maka itemGroupPromoDiscount = 0
+                // Fallback sebelumnya salah karena membagikan discount dari group lain ke group yang tidak eligible
             }
         }
 
-        // 2. Bundle Promo Discount for this item (proportional within its bundle)
+        // 2. Bundle Promo Discount for this item (proportional per promo)
+        // Item bisa masuk ke multiple bundle promos, jadi kita perlu hitung proporsi per promo
         item.itemBundlePromoDiscount = 0;
-        const promoBucketInfo = productToPromoBucketMap.get(productId);
-        if (promoBucketInfo && promoBucketInfo.promo_id && result.bundlePromoDiscount > 0) {
-            let totalSubtotalBundleItems = 0;
-            result.items.forEach(it => {
-                const itPromoBucketInfo = productToPromoBucketMap.get(it.productId);
-                if (itPromoBucketInfo && itPromoBucketInfo.promo_id === promoBucketInfo.promo_id) {
-                    totalSubtotalBundleItems += it.subtotalAfterDiscount;
+        item.bundlePromoDiscountByPromo = {}; // Track discount per promo untuk breakdown di modal
+        
+        // Check all promos that have bundle discount
+        if (result.bundlePromoDiscountByPromo && result.bundlePromoDiscountByPromo.size > 0) {
+            // Iterate through all promos that have discount
+            result.bundlePromoDiscountByPromo.forEach((promoDiscount, promoId) => {
+                // Check if this product is in this promo
+                const promoData = promoStructureMap?.get(promoId);
+                if (!promoData || !promoData.buckets) return;
+                
+                // Check if productId is in any bucket of this promo
+                let isInPromo = false;
+                promoData.buckets.forEach((productsInBucket) => {
+                    if (productsInBucket.includes(productId)) {
+                        isInPromo = true;
+                    }
+                });
+                
+                if (!isInPromo) return;
+                
+                // Calculate proportion for this promo
+                // Get all items that are in this promo
+                let totalSubtotalInThisPromo = 0;
+                result.items.forEach(it => {
+                    // Check if it.productId is in this promo
+                    let itIsInPromo = false;
+                    promoData.buckets.forEach((productsInBucket) => {
+                        if (productsInBucket.includes(it.productId)) {
+                            itIsInPromo = true;
+                        }
+                    });
+                    
+                    if (itIsInPromo) {
+                        totalSubtotalInThisPromo += it.subtotalAfterDiscount;
+                    }
+                });
+                
+                // Calculate proportion and discount for this promo
+                if (totalSubtotalInThisPromo > 0 && item.subtotalAfterDiscount > 0) {
+                    const proportion = item.subtotalAfterDiscount / totalSubtotalInThisPromo;
+                    const itemDiscountForThisPromo = promoDiscount * proportion;
+                    item.itemBundlePromoDiscount += itemDiscountForThisPromo;
+                    item.bundlePromoDiscountByPromo[promoId] = itemDiscountForThisPromo;
                 }
             });
-
-            if (totalSubtotalBundleItems > 0) {
-                const bundleItemProportion = item.subtotalAfterDiscount / totalSubtotalBundleItems;
-                item.itemBundlePromoDiscount = result.bundlePromoDiscount * bundleItemProportion;
-            }
         }
 
         // Subtotal after Principal, Group, and Bundle discounts
-        const subtotalAfterAllDiscounts = item.subtotalAfterDiscount - item.itemGroupPromoDiscount - item.itemBundlePromoDiscount;
+        // Jika promo tidak berlaku, itemGroupPromoDiscount dan itemBundlePromoDiscount akan 0
+        // sehingga subtotalAfterAllDiscounts = subtotalAfterDiscount (base price setelah principal)
+        const subtotalAfterAllDiscounts = item.subtotalAfterDiscount - (item.itemGroupPromoDiscount || 0) - (item.itemBundlePromoDiscount || 0);
 
         // 3. Invoice Discount for this item (proportional)
+        // HANYA diterapkan jika ada invoice discount dan item memiliki subtotal > 0
         item.itemInvoiceDiscount = 0;
-        if (totalAfterOtherDiscountsGlobal > 0) {
+        if (totalAfterOtherDiscountsGlobal > 0 && result.invoiceDiscount > 0 && subtotalAfterAllDiscounts > 0) {
             const invoiceDiscountProportion = subtotalAfterAllDiscounts / totalAfterOtherDiscountsGlobal;
-            item.itemInvoiceDiscount = result.invoiceDiscount * invoiceDiscountProportion;
+            // Pastikan proporsi valid (tidak NaN dan tidak negatif)
+            if (!isNaN(invoiceDiscountProportion) && isFinite(invoiceDiscountProportion) && invoiceDiscountProportion > 0) {
+                item.itemInvoiceDiscount = result.invoiceDiscount * invoiceDiscountProportion;
+            }
+            // TIDAK ADA FALLBACK - jika tidak eligible, itemInvoiceDiscount = 0
         }
 
         // Final Nett for this item
-        item.finalNett = subtotalAfterAllDiscounts - item.itemInvoiceDiscount;
+        // Logika: basePrice (subtotal) - principalDiscount - strataDiscount - bundleDiscount - invoiceDiscount
+        // Jika semua diskon = 0, maka finalNett = subtotal (basePrice)
+        item.finalNett = subtotalAfterAllDiscounts - (item.itemInvoiceDiscount || 0);
+        
+        // Pastikan finalNett tidak NaN (jika NaN, gunakan subtotal sebagai basePrice)
+        if (isNaN(item.finalNett) || !isFinite(item.finalNett)) {
+            // Jika perhitungan menghasilkan NaN, gunakan subtotal (basePrice) sebagai fallback
+            item.finalNett = item.subtotal || 0;
+        }
+        
+        // Pastikan finalNett tidak negatif (tidak boleh negatif)
+        if (item.finalNett < 0) {
+            item.finalNett = 0;
+        }
 
         // Calculate harga nett per krt
-        item.hargaNettPerKrt = qtyKrtTotal > 0 ? item.finalNett / qtyKrtTotal : 0;
+        // Pastikan qtyKrtTotal valid dan tidak 0
+        if (qtyKrtTotal > 0 && !isNaN(item.finalNett) && isFinite(item.finalNett)) {
+            item.hargaNettPerKrt = item.finalNett / qtyKrtTotal;
+        } else {
+            // Jika qtyKrtTotal 0 atau finalNett tidak valid, hitung dari subtotal (basePrice)
+            if (qtyKrtTotal > 0 && item.subtotal) {
+                item.hargaNettPerKrt = item.subtotal / qtyKrtTotal;
+            } else {
+                item.hargaNettPerKrt = 0;
+            }
+        }
+        
+        // Pastikan hargaNettPerKrt tidak NaN
+        if (isNaN(item.hargaNettPerKrt) || !isFinite(item.hargaNettPerKrt)) {
+            item.hargaNettPerKrt = 0;
+        }
+        
+        // Store qtyKrtTotal to item for use in faktur modal
+        item.qtyKrtTotal = qtyKrtTotal;
+        
+        // Store product reference for use in faktur modal
+        if (!item.product) {
+            item.product = product;
+        }
+        
+        // Debug logging jika hargaNettPerKrt adalah 0 padahal seharusnya ada nilai
+        if (item.hargaNettPerKrt === 0 && item.finalNett > 0) {
+            console.warn(`  ⚠️ calculateItemDetails: hargaNettPerKrt is 0 for product ${productId}: finalNett=${item.finalNett}, qtyKrtTotal=${qtyKrtTotal}`);
+        }
     });
 }
 
@@ -2684,11 +3493,14 @@ function showDetailHargaModal(productId) {
     const qtyKrtTotal = qtyKrt + (qtyBox / ratio);
     
     const formatCurrency = (amount) => {
+        // Bulatkan ke bilangan bulat sebelum format
+        const roundedAmount = Math.round(amount || 0);
         return new Intl.NumberFormat('id-ID', {
             style: 'currency',
             currency: 'IDR',
-            minimumFractionDigits: 0
-        }).format(amount);
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(roundedAmount);
     };
     
     // Gunakan data yang sudah dihitung dari lastCalculationResult untuk konsistensi
@@ -2698,9 +3510,10 @@ function showDetailHargaModal(productId) {
     let discBundlePromoPerKrt = 0;
     let discInvoicePerKrt = 0;
     let hargaNettPerKrt = 0;
+    let calcItem = null;
     
     if (window.lastCalculationResult && window.lastCalculationResult.items) {
-        const calcItem = window.lastCalculationResult.items.find(it => it.productId === productId);
+        calcItem = window.lastCalculationResult.items.find(it => it.productId === productId);
         if (calcItem && calcItem.finalNett !== undefined) {
             // Use pre-calculated values untuk konsistensi dengan cart
             const itemGroupPromoDiscount = calcItem.itemGroupPromoDiscount || 0;
@@ -2753,10 +3566,50 @@ function showDetailHargaModal(productId) {
                     <td class="label">Potongan Group Promo (Strata)</td>
                     <td class="value value-danger">- ${formatCurrency(discGroupPromoPerKrt)}</td>
                 </tr>
-                <tr>
-                    <td class="label">Potongan Bundle Promo</td>
-                    <td class="value value-danger">- ${formatCurrency(discBundlePromoPerKrt)}</td>
-                </tr>
+                ${(() => {
+                    // Check if item has breakdown per promo
+                    const bundlePromoBreakdown = calcItem.bundlePromoDiscountByPromo || {};
+                    const promoIds = Object.keys(bundlePromoBreakdown);
+                    
+                    if (promoIds.length === 0) {
+                        // No bundle promo discount
+                        return `
+                            <tr>
+                                <td class="label">Potongan Bundle Promo</td>
+                                <td class="value value-danger">- ${formatCurrency(discBundlePromoPerKrt)}</td>
+                            </tr>
+                        `;
+                    } else if (promoIds.length === 1) {
+                        // Only 1 promo, show simple
+                        const promoId = promoIds[0];
+                        const discountPerKrt = qtyKrtTotal > 0 ? (bundlePromoBreakdown[promoId] / qtyKrtTotal) : 0;
+                        return `
+                            <tr>
+                                <td class="label">Potongan Bundle Promo (${promoId})</td>
+                                <td class="value value-danger">- ${formatCurrency(discountPerKrt)}</td>
+                            </tr>
+                        `;
+                    } else {
+                        // Multiple promos, show breakdown
+                        let html = `
+                            <tr>
+                                <td class="label">Potongan Bundle Promo</td>
+                                <td class="value value-danger">- ${formatCurrency(discBundlePromoPerKrt)}</td>
+                            </tr>
+                        `;
+                        promoIds.forEach(promoId => {
+                            const discount = bundlePromoBreakdown[promoId];
+                            const discountPerKrt = qtyKrtTotal > 0 ? (discount / qtyKrtTotal) : 0;
+                            html += `
+                                <tr style="font-size: 0.9em; color: #666;">
+                                    <td class="label" style="padding-left: 20px;">└─ ${promoId}</td>
+                                    <td class="value value-danger">- ${formatCurrency(discountPerKrt)}</td>
+                                </tr>
+                            `;
+                        });
+                        return html;
+                    }
+                })()}
                 <tr>
                     <td class="label">Potongan Invoice</td>
                     <td class="value value-danger">- ${formatCurrency(discInvoicePerKrt)}</td>
@@ -2765,8 +3618,40 @@ function showDetailHargaModal(productId) {
                     <td class="label">Harga Nett Akhir (On Faktur)</td>
                     <td class="value">${formatCurrency(hargaNettPerKrt)}</td>
                 </tr>
+                ${(() => {
+                    const cashback = window.lastCalculationResult?.loyaltyCashback || {};
+                    if (cashback.isAvailable && cashback.cashbackAmount > 0) {
+                        const cashbackPerKrt = qtyKrtTotal > 0 ? (cashback.cashbackAmount / qtyKrtTotal) : 0;
+                        const hargaSetelahCashback = Math.max(0, hargaNettPerKrt - cashbackPerKrt);
+                        return `
+                            <tr>
+                                <td class="label">(-) Cashback Loyalty (${cashback.loyaltyClassName || cashback.loyaltyClassCode})</td>
+                                <td class="value value-danger">- ${formatCurrency(cashbackPerKrt)}</td>
+                            </tr>
+                            <tr class="final-total-row" style="background-color: #e8f5e9; border-top: 2px solid #4caf50;">
+                                <td class="label" style="font-weight: bold;">Harga Setelah Cashback</td>
+                                <td class="value" style="font-weight: bold; color: #2e7d32;">${formatCurrency(hargaSetelahCashback)}</td>
+                            </tr>
+                        `;
+                    }
+                    return '';
+                })()}
             </tbody>
         </table>
+        
+        ${(() => {
+            const cashback = window.lastCalculationResult?.loyaltyCashback || {};
+            if (cashback.isAvailable && cashback.cashbackAmount > 0) {
+                return `
+                    <div class="modal-info-box success" style="margin-top: 15px;">
+                        <strong>Cashback Loyalty:</strong> ${cashback.loyaltyClassName || cashback.loyaltyClassCode} - 
+                        ${formatCurrency(cashback.cashbackAmount)} (${cashback.cashbackPercentage}% dari Total Nett)
+                        <br><small>*Cashback diberikan per transaksi untuk principal KSNI</small>
+                    </div>
+                `;
+            }
+            return '';
+        })()}
         
         <div class="modal-info-box info">
             *Harga nett adalah harga setelah semua diskon diterapkan (Principal, Group Promo, Bundle Promo, dan Invoice Discount).

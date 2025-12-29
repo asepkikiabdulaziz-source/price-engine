@@ -167,27 +167,11 @@ body {
     font-size: 0.9rem;
 }
 
-.user-info-items {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 15px 20px;
-    align-items: center;
-    flex: 1;
-}
-
-.user-info-item {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-.user-info-label {
+.user-info-simple {
+    color: white;
+    font-size: 0.95em;
     font-weight: 500;
-    opacity: 0.9;
-}
-
-.user-info-value {
-    font-weight: 600;
+    flex: 1;
 }
 
 .header-right {
@@ -283,37 +267,64 @@ body {
 /* Store Type Selection */
 .store-type-card {
     background: #e3f2fd;
+    text-align: left;
 }
 
-.store-type-options {
-    display: flex;
-    gap: 20px;
-}
-
-.radio-option {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
+.store-type-select {
+    width: 100%;
+    max-width: 200px;
     padding: 10px 15px;
+    font-size: 1em;
+    font-weight: 500;
     border: 2px solid #1e3a8a;
     border-radius: 8px;
+    background-color: white;
+    color: #1e3a8a;
+    cursor: pointer;
     transition: all 0.3s;
 }
 
-.radio-option:hover {
-    background: rgba(30, 58, 138, 0.1);
+.store-type-select:hover {
+    background: rgba(30, 58, 138, 0.05);
+    border-color: #1e40af;
 }
 
-.radio-option input[type="radio"] {
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
+.store-type-select:focus {
+    outline: none;
+    border-color: #1e40af;
+    box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.1);
 }
 
-.radio-option input[type="radio"]:checked + span {
-    font-weight: 600;
+.loyalty-class-select {
+    width: 100%;
+    max-width: 200px;
+    padding: 10px 15px;
+    font-size: 1em;
+    font-weight: 500;
+    border: 2px solid #1e3a8a;
+    border-radius: 8px;
+    background-color: white;
     color: #1e3a8a;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.loyalty-class-select:hover:not(:disabled) {
+    background: rgba(30, 58, 138, 0.05);
+    border-color: #1e40af;
+}
+
+.loyalty-class-select:focus:not(:disabled) {
+    outline: none;
+    border-color: #1e40af;
+    box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.1);
+}
+
+.loyalty-class-select:disabled {
+    background: #f5f5f5;
+    cursor: not-allowed;
+    opacity: 0.6;
+    border-color: #ccc;
 }
 
 /* Product Groups */
@@ -1392,9 +1403,8 @@ body {
         gap: 10px;
     }
 
-    .radio-option {
-        width: 100%;
-        justify-content: center;
+    .store-type-select {
+        max-width: 100%;
     }
 
     .calculation-details {
@@ -1492,28 +1502,14 @@ body {
         font-size: 0.8rem;
     }
     
-    .user-info-items {
+    .user-info-simple {
+        font-size: 0.85em;
+        word-break: break-word;
         flex: 1;
-        gap: 8px 12px;
-        min-width: 0; /* Allow flex item to shrink */
     }
     
     .header-right {
         flex-shrink: 0;
-    }
-    
-    .user-info-item {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 2px;
-    }
-
-    .user-info-label {
-        font-size: 0.85em;
-    }
-
-    .user-info-value {
-        font-size: 0.9em;
     }
     
     .btn-secondary {
@@ -1534,6 +1530,261 @@ body {
     .store-type-card h2 {
         font-size: 1rem;
         margin-bottom: 12px;
+    }
+}
+
+/* Voucher Input Styling */
+.calc-row.voucher-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.calc-row.voucher-row span {
+    flex-shrink: 0;
+}
+
+.voucher-input {
+    flex: 1;
+    max-width: 200px;
+    height: 38px;
+    padding: 0 10px;
+    font-size: 1em;
+    font-weight: 600;
+    text-align: right;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    background-color: #f8f9fa;
+    color: #28a745;
+}
+
+.voucher-input::placeholder {
+    color: #aaa;
+    font-weight: 400;
+    font-size: 0.9em;
+}
+
+.voucher-input:focus {
+    outline: none;
+    border-color: #28a745;
+    background-color: #fff;
+}
+
+/* Final Total Row */
+.calc-row.final-total-row {
+    border-top: 2px solid #333;
+    margin-top: 10px;
+    padding-top: 10px;
+    font-size: 1.1em;
+}
+
+.calc-row.final-total-row .amount.total {
+    color: #333 !important;
+    font-weight: 700 !important;
+    font-size: 1.2em;
+}
+
+#final-tagihan {
+    color: #333 !important;
+    font-weight: 700 !important;
+}
+
+#final-tagihan strong {
+    color: #333 !important;
+    font-weight: 700 !important;
+}
+
+/* Cart Actions */
+.cart-actions {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+}
+
+.cart-actions .btn {
+    flex: 1;
+    padding: 12px;
+    font-size: 1em;
+    font-weight: 500;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.cart-actions .btn-danger {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+}
+
+.cart-actions .btn-danger:hover {
+    background-color: #c82333;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
+}
+
+.cart-actions .btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+}
+
+.cart-actions .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+/* Faktur Modal Styling */
+.faktur-header-info {
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 6px;
+}
+
+.faktur-header-info .info-line {
+    display: flex;
+    margin-bottom: 8px;
+    font-size: 0.95em;
+}
+
+.faktur-header-info .info-label {
+    font-weight: 600;
+    min-width: 80px;
+    color: #555;
+}
+
+.faktur-header-info .info-separator {
+    margin: 0 8px;
+    color: #999;
+}
+
+.faktur-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+    font-size: 0.9em;
+}
+
+.faktur-table th,
+.faktur-table td {
+    padding: 10px;
+    text-align: left;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.faktur-table th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    color: #333;
+}
+
+.faktur-table .col-nama {
+    width: 40%;
+}
+
+.faktur-table .col-qty {
+    width: 15%;
+    text-align: center;
+}
+
+.faktur-table .col-price {
+    width: 25%;
+    text-align: right;
+}
+
+.faktur-table .col-total {
+    width: 20%;
+    text-align: right;
+}
+
+.faktur-table .item-name {
+    font-weight: 500;
+}
+
+.faktur-table .item-qty {
+    text-align: center;
+}
+
+.faktur-table .item-price-nett,
+.faktur-table .item-total {
+    text-align: right;
+    font-weight: 500;
+}
+
+.faktur-summary {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 2px solid #333;
+}
+
+.faktur-summary .summary-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 0.95em;
+}
+
+.faktur-summary .summary-label {
+    font-weight: 500;
+    color: #555;
+}
+
+.faktur-summary .summary-value {
+    font-weight: 600;
+    color: #333;
+}
+
+.faktur-summary .discount-row .summary-value {
+    color: #dc3545;
+}
+
+.faktur-summary .on-faktur-row {
+    border-top: 2px solid #333;
+    margin-top: 10px;
+    padding-top: 10px;
+}
+
+.faktur-summary .grand-total {
+    border-top: 2px solid #333;
+    margin-top: 10px;
+    padding-top: 10px;
+    font-size: 1.1em;
+}
+
+.faktur-summary .grand-total .summary-label,
+.faktur-summary .grand-total .summary-value {
+    font-weight: 700;
+    font-size: 1.1em;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+    .cart-actions {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+    
+    .cart-actions .btn {
+        flex: 1;
+        min-width: 120px;
+    }
+    
+    .voucher-input {
+        max-width: 100%;
+    }
+    
+    .faktur-table {
+        font-size: 0.8em;
+    }
+    
+    .faktur-table th,
+    .faktur-table td {
+        padding: 8px 5px;
     }
 }
 

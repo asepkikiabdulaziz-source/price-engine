@@ -799,8 +799,8 @@ export async function loadLoyaltyClasses() {
         const supabase = getSupabaseClient();
         const { data, error } = await supabase
             .from('store_loyalty_classes')
-            .select('code, name, target_monthly, cashback_percentage')
-            .order('code');
+            .select('code, name, store_type, target_monthly, cashback_percentage')
+            .order('code, store_type');
         
         if (error) throw error;
         return data || [];
@@ -818,7 +818,7 @@ export async function loadLoyaltyAreaRules() {
         const supabase = getSupabaseClient();
         const { data, error } = await supabase
             .from('store_loyalty_area_rules')
-            .select('loyalty_class_code, zone_codes, region_codes, depo_codes, target_monthly, cashback_percentage, priority')
+            .select('loyalty_class_code, store_type, zone_codes, region_codes, depo_codes, target_monthly, cashback_percentage, priority')
             .order('loyalty_class_code, priority', { ascending: false });
         
         if (error) throw error;
@@ -930,66 +930,49 @@ function matchesArea(rule, userZona, userRegion, userDepo) {
 }
 
 /**
- * Resolve loyalty rule for a specific class and area
- * Returns area-specific rule if available, otherwise returns default from loyalty classes
+ * Resolve loyalty rule for a specific class and store type
+ * Simplified version: hanya menggunakan store_loyalty_classes (dengan store_type)
  * @param {string} loyaltyClassCode - Loyalty class code
- * @param {string} userZona - User's zona
- * @param {string} userRegion - User's region_name
- * @param {string} userDepo - User's depo_id
- * @param {Array} areaRules - Array of area rules from loadLoyaltyAreaRules()
- * @param {Object} defaultClass - Default class data from loadLoyaltyClasses() (filtered by code)
+ * @param {string} storeType - Store type ('grosir' or 'retail')
+ * @param {Array} loyaltyClasses - Array of loyalty classes from loadLoyaltyClasses()
  * @returns {Object|null} - Resolved rule with target_monthly and cashback_percentage, or null if not found
  */
-export function resolveLoyaltyRule(loyaltyClassCode, userZona, userRegion, userDepo, areaRules, defaultClass) {
-    // Filter rules for this class
-    const classRules = (areaRules || []).filter(r => r.loyalty_class_code === loyaltyClassCode);
-    
-    if (classRules.length === 0) {
-        // No area-specific rules, return default
-        if (defaultClass) {
-            return {
-                target_monthly: parseFloat(defaultClass.target_monthly) || 0,
-                cashback_percentage: parseFloat(defaultClass.cashback_percentage) || 0
-            };
-        }
+export function resolveLoyaltyRule(loyaltyClassCode, storeType, loyaltyClasses) {
+    if (!loyaltyClasses || loyaltyClasses.length === 0) {
         return null;
     }
     
-    // Calculate specificity score for each rule
-    const rulesWithScore = classRules.map(rule => ({
-        ...rule,
-        specificity: getSpecificity(rule)
-    }));
+    // Filter classes for this code
+    const classRules = loyaltyClasses.filter(c => c.code === loyaltyClassCode);
     
-    // Sort by priority (descending) and specificity (descending)
-    rulesWithScore.sort((a, b) => {
-        // 1. Priority (higher first)
-        if (b.priority !== a.priority) {
-            return b.priority - a.priority;
-        }
-        // 2. Specificity: depo > region > zone > all
-        return b.specificity - a.specificity;
-    });
-    
-    // Find first matching rule
-    for (const rule of rulesWithScore) {
-        if (matchesArea(rule, userZona, userRegion, userDepo)) {
-            return {
-                target_monthly: parseFloat(rule.target_monthly) || 0,
-                cashback_percentage: parseFloat(rule.cashback_percentage) || 0
-            };
-        }
+    if (classRules.length === 0) {
+        return null;
     }
     
-    // No matching area-specific rule, return default
-    if (defaultClass) {
+    // Try to find specific store_type first (grosir or retail)
+    const specificStoreType = classRules.find(c => c.store_type === storeType);
+    if (specificStoreType) {
         return {
-            target_monthly: parseFloat(defaultClass.target_monthly) || 0,
-            cashback_percentage: parseFloat(defaultClass.cashback_percentage) || 0
+            target_monthly: parseFloat(specificStoreType.target_monthly) || 0,
+            cashback_percentage: parseFloat(specificStoreType.cashback_percentage) || 0
         };
     }
     
-    return null;
+    // Fallback to 'all' store_type
+    const allStoreType = classRules.find(c => c.store_type === 'all');
+    if (allStoreType) {
+        return {
+            target_monthly: parseFloat(allStoreType.target_monthly) || 0,
+            cashback_percentage: parseFloat(allStoreType.cashback_percentage) || 0
+        };
+    }
+    
+    // If no match, return first one (shouldn't happen if data is correct)
+    const firstRule = classRules[0];
+    return {
+        target_monthly: parseFloat(firstRule.target_monthly) || 0,
+        cashback_percentage: parseFloat(firstRule.cashback_percentage) || 0
+    };
 }
 
 /**

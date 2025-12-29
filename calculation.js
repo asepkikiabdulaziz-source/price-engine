@@ -3,11 +3,14 @@ const PPN_RATE = 0.11; // 11% PPN
 
 // Helper function to format currency
 const formatCurrency = (amount) => {
+    // Bulatkan ke bilangan bulat sebelum format
+    const roundedAmount = Math.round(amount || 0);
     return new Intl.NumberFormat('id-ID', {
         style: 'currency',
         currency: 'IDR',
-        minimumFractionDigits: 0
-    }).format(amount);
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+    }).format(roundedAmount);
 };
 
 // Helper function to convert quantity to smallest unit (boxes)
@@ -229,6 +232,8 @@ export function calculateGroupPromoDiscount(
     groupPromos,
     groupPromoTiers,
     promoAvailabilityRules,
+    productGroupAvailabilityRules,
+    isProductGroupAvailable,
     storeType,
     userZona,
     userRegion,
@@ -237,6 +242,27 @@ export function calculateGroupPromoDiscount(
 ) {
     if (!cart || cart.size === 0 || !groupPromos || groupPromos.length === 0 || !groupPromoTiers || groupPromoTiers.length === 0) {
         return 0;
+    }
+
+    // Debug logging untuk group promos
+    console.log(`🔍 calculateGroupPromoDiscount: Total group promos loaded: ${groupPromos?.length || 0}`);
+    if (groupPromos && groupPromos.length > 0) {
+        const sipPromos = groupPromos.filter(p => 
+            p.product_group_code && (p.product_group_code === 'SIP-E01K' || p.product_group_code.toLowerCase() === 'sip-e01k')
+        );
+        if (sipPromos.length > 0) {
+            console.log(`  ✅ Found ${sipPromos.length} promo(s) for SIP-E01K:`, sipPromos.map(p => ({
+                promo_id: p.promo_id,
+                product_group_code: p.product_group_code,
+                description: p.description
+            })));
+        } else {
+            console.log(`  ❌ No promo found for SIP-E01K in loaded promos`);
+            console.log(`  - All loaded promos:`, groupPromos.map(p => ({
+                promo_id: p.promo_id,
+                product_group_code: p.product_group_code
+            })));
+        }
     }
 
     // 1. Filter available group promos
@@ -251,6 +277,18 @@ export function calculateGroupPromoDiscount(
             userDepo
         );
     });
+
+    console.log(`  - Available promos after filtering: ${availablePromos.length}`);
+    if (availablePromos.length > 0) {
+        const sipAvailablePromos = availablePromos.filter(p => 
+            p.product_group_code && (p.product_group_code === 'SIP-E01K' || p.product_group_code.toLowerCase() === 'sip-e01k')
+        );
+        if (sipAvailablePromos.length > 0) {
+            console.log(`  ✅ Found ${sipAvailablePromos.length} available promo(s) for SIP-E01K`);
+        } else {
+            console.log(`  ❌ No available promo for SIP-E01K after filtering`);
+        }
+    }
 
     if (availablePromos.length === 0) {
         return 0;
@@ -285,10 +323,48 @@ export function calculateGroupPromoDiscount(
     const groupPromoDiscountByGroup = new Map(); // groupCode -> discountAmount
 
     itemsByGroup.forEach((items, groupCode) => {
-        // Find promos for this group
-        const promosForGroup = availablePromos.filter(promo => 
-            promo.product_group_code === groupCode
-        );
+        // Debug logging untuk group SIP-E01K
+        if (groupCode === 'SIP-E01K' || groupCode === 'sip-e01k') {
+            console.log(`🔍 Checking group promo for group: ${groupCode}`);
+            console.log(`  - Total available promos: ${availablePromos.length}`);
+            console.log(`  - Available promos:`, availablePromos.map(p => ({ promo_id: p.promo_id, product_group_code: p.product_group_code })));
+        }
+        
+        // Check if this product group is available for the user
+        if (isProductGroupAvailable && productGroupAvailabilityRules) {
+            const isAvailable = isProductGroupAvailable(
+                groupCode,
+                productGroupAvailabilityRules,
+                userZona,
+                userRegion,
+                userDepo
+            );
+            if (groupCode === 'SIP-E01K' || groupCode === 'sip-e01k') {
+                console.log(`  - Group availability check: ${isAvailable} (zona: ${userZona}, region: ${userRegion}, depo: ${userDepo})`);
+            }
+            if (!isAvailable) {
+                if (groupCode === 'SIP-E01K' || groupCode === 'sip-e01k') {
+                    console.log(`  ❌ Group ${groupCode} is NOT available for this user - skipping discount`);
+                }
+                return; // Group not available for this user
+            }
+        }
+        
+        // Find promos for this group (case-insensitive comparison)
+        const promosForGroup = availablePromos.filter(promo => {
+            const promoGroupCode = (promo.product_group_code || '').toUpperCase().trim();
+            const targetGroupCode = (groupCode || '').toUpperCase().trim();
+            return promoGroupCode === targetGroupCode;
+        });
+
+        if (groupCode === 'SIP-E01K' || groupCode === 'sip-e01k') {
+            console.log(`  - Promos found for group ${groupCode}: ${promosForGroup.length}`);
+            if (promosForGroup.length > 0) {
+                console.log(`  - Promo details:`, promosForGroup.map(p => ({ promo_id: p.promo_id, product_group_code: p.product_group_code })));
+            } else {
+                console.log(`  ❌ No promo found for group ${groupCode} - checking all promos:`, availablePromos.map(p => p.product_group_code));
+            }
+        }
 
         if (promosForGroup.length === 0) {
             return; // No promo for this group
@@ -487,8 +563,11 @@ export function calculateBundlePromoDiscount(
     }
 
     let totalBundlePromoDiscount = 0;
+    const bundlePromoDiscountByPromo = new Map(); // promo_id -> discount amount
 
     // 2. For each available promo, calculate discount
+    // Note: If a product belongs to multiple bundle promos, all applicable promos are counted
+    // (as long as quantity is sufficient to form packages for each promo)
     availablePromos.forEach(promo => {
         const promoData = promoStructureMap.get(promo.promo_id);
         if (!promoData || !promoData.buckets) {
@@ -578,9 +657,15 @@ export function calculateBundlePromoDiscount(
         const discountAmount = discountPerPackage * finalPackages;
 
         totalBundlePromoDiscount += discountAmount;
+        bundlePromoDiscountByPromo.set(promo.promo_id, discountAmount);
+        
+        console.log(`✅ Bundle promo ${promo.promo_id} applied: ${discountAmount} (${finalPackages} packages × ${discountPerPackage})`);
     });
 
-    return totalBundlePromoDiscount;
+    return {
+        total: totalBundlePromoDiscount,
+        byPromo: bundlePromoDiscountByPromo
+    };
 }
 
 /**
@@ -659,6 +744,8 @@ export function calculateTotal({
     invoiceDiscounts,
     freeProductPromos,
     promoAvailabilityRules,
+    productGroupAvailabilityRules,
+    isProductGroupAvailable,
     storeType,
     userZona,
     userRegion,
@@ -684,6 +771,8 @@ export function calculateTotal({
     
     // 1. Calculate base price
     result.basePrice = calculateBasePrice(cart, productDataMap, userZona);
+    // Pastikan basePrice adalah number valid (bukan NaN atau Infinity)
+    result.basePrice = (isNaN(result.basePrice) || !isFinite(result.basePrice)) ? 0 : result.basePrice;
     
     // 2. Calculate principal discount rates per principal
     const principalDiscountRates = calculatePrincipalDiscount(
@@ -745,6 +834,8 @@ export function calculateTotal({
     });
     
     result.principalDiscount = totalPrincipalDiscount;
+    // Pastikan principalDiscount adalah number valid (bukan NaN atau Infinity)
+    result.principalDiscount = (isNaN(result.principalDiscount) || !isFinite(result.principalDiscount)) ? 0 : result.principalDiscount;
     
     // 4. Calculate group promo (strata) discount
     const groupPromoResult = calculateGroupPromoDiscount(
@@ -754,17 +845,28 @@ export function calculateTotal({
         groupPromos,
         groupPromoTiers,
         promoAvailabilityRules,
+        productGroupAvailabilityRules,
+        isProductGroupAvailable,
         storeType,
         userZona,
         userRegion,
         userDepo,
         isPromoAvailable
     );
-    result.groupPromoDiscount = groupPromoResult.total || groupPromoResult; // Backward compatibility
-    result.groupPromoDiscountByGroup = groupPromoResult.byGroup || new Map(); // Per-group discounts
+    // Pastikan groupPromoDiscount adalah number, bukan object
+    if (typeof groupPromoResult === 'object' && groupPromoResult !== null) {
+        result.groupPromoDiscount = typeof groupPromoResult.total === 'number' && !isNaN(groupPromoResult.total) ? groupPromoResult.total : 0;
+        result.groupPromoDiscountByGroup = groupPromoResult.byGroup || new Map();
+    } else {
+        result.groupPromoDiscount = typeof groupPromoResult === 'number' && !isNaN(groupPromoResult) ? groupPromoResult : 0;
+        result.groupPromoDiscountByGroup = new Map();
+    }
+    
+    // Pastikan semua discount adalah number valid (bukan NaN atau Infinity)
+    result.groupPromoDiscount = (isNaN(result.groupPromoDiscount) || !isFinite(result.groupPromoDiscount)) ? 0 : result.groupPromoDiscount;
     
     // 5. Calculate bundle promo discount
-    result.bundlePromoDiscount = calculateBundlePromoDiscount(
+    const bundlePromoResult = calculateBundlePromoDiscount(
         cart,
         productDataMap,
         promoStructureMap,
@@ -778,10 +880,33 @@ export function calculateTotal({
         isPromoAvailable
     );
     
+    // Handle return value (bisa object dengan total dan byPromo, atau number untuk backward compatibility)
+    if (typeof bundlePromoResult === 'object' && bundlePromoResult !== null) {
+        result.bundlePromoDiscount = typeof bundlePromoResult.total === 'number' && !isNaN(bundlePromoResult.total) ? bundlePromoResult.total : 0;
+        result.bundlePromoDiscountByPromo = bundlePromoResult.byPromo || new Map();
+    } else {
+        result.bundlePromoDiscount = typeof bundlePromoResult === 'number' && !isNaN(bundlePromoResult) ? bundlePromoResult : 0;
+        result.bundlePromoDiscountByPromo = new Map();
+    }
+    
+    // Pastikan bundlePromoDiscount adalah number valid (bukan NaN atau Infinity)
+    result.bundlePromoDiscount = (isNaN(result.bundlePromoDiscount) || !isFinite(result.bundlePromoDiscount)) ? 0 : result.bundlePromoDiscount;
+    
     // 6. Calculate invoice discount
     // NOTE: min_purchase_amount is checked against basePrice (before any discounts)
     //       but discount is calculated on totalAfterOtherDiscounts (after other discounts)
+    
+    // Pastikan semua nilai di result adalah number valid sebelum perhitungan
+    // Update result dengan nilai yang sudah divalidasi
+    result.basePrice = (isNaN(result.basePrice) || !isFinite(result.basePrice)) ? 0 : result.basePrice;
+    result.principalDiscount = (isNaN(result.principalDiscount) || !isFinite(result.principalDiscount)) ? 0 : result.principalDiscount;
+    result.groupPromoDiscount = (isNaN(result.groupPromoDiscount) || !isFinite(result.groupPromoDiscount)) ? 0 : result.groupPromoDiscount;
+    result.bundlePromoDiscount = (isNaN(result.bundlePromoDiscount) || !isFinite(result.bundlePromoDiscount)) ? 0 : result.bundlePromoDiscount;
+    
+    // Hitung totalAfterOtherDiscounts menggunakan nilai dari result (yang sudah divalidasi)
     const totalAfterOtherDiscounts = result.basePrice - result.principalDiscount - result.groupPromoDiscount - result.bundlePromoDiscount;
+    
+    // Calculate invoice discount
     result.invoiceDiscount = calculateInvoiceDiscount(
         result.basePrice, // Use basePrice to check min_purchase_amount
         totalAfterOtherDiscounts, // Use totalAfterOtherDiscounts to calculate discount
@@ -789,12 +914,33 @@ export function calculateTotal({
         paymentMethod || 'COD'
     );
     
+    // Pastikan invoiceDiscount adalah number valid
+    result.invoiceDiscount = (isNaN(result.invoiceDiscount) || !isFinite(result.invoiceDiscount)) ? 0 : result.invoiceDiscount;
+    
     // TODO: Calculate free product discount
-    // For now, calculate total nett with principal, group promo, bundle promo, and invoice discounts
-    result.totalNett = totalAfterOtherDiscounts - result.invoiceDiscount;
+    // Calculate total nett: basePrice - principalDiscount - groupPromoDiscount - bundlePromoDiscount - invoiceDiscount
+    // Pastikan totalNett tidak negatif
+    result.totalNett = Math.max(0, totalAfterOtherDiscounts - result.invoiceDiscount);
+    
+    // Pastikan totalNett adalah number valid
+    result.totalNett = (isNaN(result.totalNett) || !isFinite(result.totalNett)) ? 0 : result.totalNett;
+    
+    // Also add totalNettPrice for compatibility (same as totalNett)
+    result.totalNettPrice = result.totalNett;
     
     // Also add totalBasePrice for compatibility
     result.totalBasePrice = result.basePrice;
+    
+    // Debug logging
+    console.log('💰 calculateTotal result:', {
+        basePrice: result.basePrice,
+        principalDiscount: result.principalDiscount,
+        groupPromoDiscount: result.groupPromoDiscount,
+        bundlePromoDiscount: result.bundlePromoDiscount,
+        invoiceDiscount: result.invoiceDiscount,
+        totalNett: result.totalNett,
+        totalNettPrice: result.totalNettPrice
+    });
     
     return result;
 }

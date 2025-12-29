@@ -1,5 +1,18 @@
-class_code,class_name,target_monthly,cashback_percentage
-A,Kelas A,50000000,1.0
-B,Kelas B,25000000,0.5
-C,Kelas C,10000000,0.25
-
+class_code,class_name,store_type,target_monthly,cashback_percentage
+S - 4.500%,S,Grosir,1000000000,4.5
+A+ - 4.250%,A+,Grosir,750000000,4.25
+A - 4.000%,A,Grosir,500000000,4
+B+ - 3.875%,B+,Grosir,350000000,3.875
+B - 3.750%,B,Grosir,250000000,3.75
+C+ - 3.650%,C+,Grosir,175000000,3.65
+C - 3.500%,C,Grosir,100000000,3.5
+D - 3.375%,D,Grosir,75000000,3.375
+E - 3.250%,E,Grosir,50000000,3.25
+F - 2.750%,F,Grosir,35000000,2.75
+G - 2.750%,G,Grosir,25000000,2.75
+H - 2.750%,H,Grosir,15000000,2.75
+I - 2.750%,I,Grosir,5000000,2.75
+J - 1.500%,J,Grosir,3000000,1.5
+C - 3.000%,C,Grosir,100000000,3
+E - 2.500%,E,Grosir,50000000,2.5
+H - 2.000%,H,Grosir,15000000,2

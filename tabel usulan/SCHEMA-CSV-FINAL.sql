@@ -128,11 +128,13 @@ CREATE TABLE product_group_availability (
 -- master_loyalty_class.csv → store_loyalty_classes
 CREATE TABLE store_loyalty_classes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    code TEXT UNIQUE NOT NULL,           -- class_code dari CSV
+    code TEXT NOT NULL,           -- class_code dari CSV
     name TEXT NOT NULL,                  -- class_name dari CSV
+    store_type TEXT NOT NULL CHECK (store_type IN ('grosir', 'retail', 'all')) DEFAULT 'all', -- filter type outlet
     target_monthly DECIMAL(15,2) NOT NULL, -- target_monthly dari CSV
     cashback_percentage DECIMAL(5,2) NOT NULL, -- cashback_percentage dari CSV
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(code, store_type) -- satu class bisa punya multiple store_type
 );
 
 -- master_loyalty_availability.csv → store_loyalty_availability
@@ -147,19 +149,21 @@ CREATE TABLE store_loyalty_availability (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- master_loyalty_area_rules.csv → store_loyalty_area_rules
-CREATE TABLE store_loyalty_area_rules (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    loyalty_class_code TEXT NOT NULL,  -- reference ke store_loyalty_classes.code
-    zone_codes TEXT[],     -- array dari zone_code (null = all zones)
-    region_codes TEXT[],   -- array dari region_code (null = all regions)
-    depo_codes TEXT[],     -- array dari depo_code (null = all depos)
-    target_monthly DECIMAL(15,2) NOT NULL, -- target untuk area ini
-    cashback_percentage DECIMAL(5,2) NOT NULL, -- reward untuk area ini
-    priority INTEGER DEFAULT 0, -- untuk resolve conflict (higher = more specific)
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- master_loyalty_area_rules.csv → store_loyalty_area_rules (DEPRECATED - menggunakan store_type di store_loyalty_classes)
+-- Tabel ini tidak digunakan lagi jika hanya menggunakan 2 tabel (master_loyalty_class + master_loyalty_availability)
+-- CREATE TABLE store_loyalty_area_rules (
+--     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+--     loyalty_class_code TEXT NOT NULL,  -- reference ke store_loyalty_classes.code
+--     store_type TEXT NOT NULL CHECK (store_type IN ('grosir', 'retail', 'all')) DEFAULT 'all', -- filter type outlet
+--     zone_codes TEXT[],     -- array dari zone_code (null = all zones)
+--     region_codes TEXT[],   -- array dari region_code (null = all regions)
+--     depo_codes TEXT[],     -- array dari depo_code (null = all depos)
+--     target_monthly DECIMAL(15,2) NOT NULL, -- target untuk area ini
+--     cashback_percentage DECIMAL(5,2) NOT NULL, -- reward untuk area ini
+--     priority INTEGER DEFAULT 0, -- untuk resolve conflict (higher = more specific)
+--     created_at TIMESTAMPTZ DEFAULT NOW(),
+--     updated_at TIMESTAMPTZ DEFAULT NOW()
+-- );
 
 -- ============================================
 -- 5. DISKON PRINCIPAL
@@ -319,10 +323,14 @@ CREATE INDEX idx_store_loyalty_availability_zone_codes ON store_loyalty_availabi
 CREATE INDEX idx_store_loyalty_availability_region_codes ON store_loyalty_availability USING GIN (region_codes);
 CREATE INDEX idx_store_loyalty_availability_depo_codes ON store_loyalty_availability USING GIN (depo_codes);
 
--- Indexes untuk store_loyalty_area_rules (array fields untuk performa query)
-CREATE INDEX idx_store_loyalty_area_rules_class ON store_loyalty_area_rules(loyalty_class_code);
-CREATE INDEX idx_store_loyalty_area_rules_zone_codes ON store_loyalty_area_rules USING GIN (zone_codes);
-CREATE INDEX idx_store_loyalty_area_rules_region_codes ON store_loyalty_area_rules USING GIN (region_codes);
-CREATE INDEX idx_store_loyalty_area_rules_depo_codes ON store_loyalty_area_rules USING GIN (depo_codes);
-CREATE INDEX idx_store_loyalty_area_rules_priority ON store_loyalty_area_rules(loyalty_class_code, priority DESC);
+-- Indexes untuk store_loyalty_classes (dengan store_type)
+CREATE INDEX idx_store_loyalty_classes_code_store_type ON store_loyalty_classes(code, store_type);
+
+-- Indexes untuk store_loyalty_area_rules (DEPRECATED - tidak digunakan jika hanya 2 tabel)
+-- CREATE INDEX idx_store_loyalty_area_rules_class ON store_loyalty_area_rules(loyalty_class_code);
+-- CREATE INDEX idx_store_loyalty_area_rules_store_type ON store_loyalty_area_rules(store_type);
+-- CREATE INDEX idx_store_loyalty_area_rules_zone_codes ON store_loyalty_area_rules USING GIN (zone_codes);
+-- CREATE INDEX idx_store_loyalty_area_rules_region_codes ON store_loyalty_area_rules USING GIN (region_codes);
+-- CREATE INDEX idx_store_loyalty_area_rules_depo_codes ON store_loyalty_area_rules USING GIN (depo_codes);
+-- CREATE INDEX idx_store_loyalty_area_rules_priority ON store_loyalty_area_rules(loyalty_class_code, priority DESC);
 

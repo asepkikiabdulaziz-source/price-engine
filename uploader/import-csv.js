@@ -49,8 +49,9 @@ function readCSV(filename) {
 }
 
 /**
- * Parse array string from CSV (format: "{value1,value2}" or "value1,value2")
+ * Parse array string from CSV (format: "{value1,value2}" or "value1,value2" or """value1,value2""")
  * Handles: "NULL", "null", "all", empty strings, and comma-separated values (including quoted strings)
+ * Also handles triple quotes format: """1000559,1000690,1000929"""
  */
 function parseArray(csvValue) {
     if (!csvValue || csvValue.trim() === '' || csvValue.trim().toUpperCase() === 'NULL') return [];
@@ -60,8 +61,13 @@ function parseArray(csvValue) {
     
     // Remove curly braces if present
     let cleaned = csvValue.trim().replace(/^\{|\}$/g, '');
-    // Remove quotes if present (CSV may have quoted strings like "R05, R07, R09")
-    cleaned = cleaned.replace(/^"|"$/g, '');
+    
+    // Handle triple quotes format: """1000559,1000690,1000929"""
+    // Remove triple quotes if present
+    cleaned = cleaned.replace(/^"""|"""$/g, '');
+    
+    // Remove single/double quotes if present (CSV may have quoted strings like "R05, R07, R09")
+    cleaned = cleaned.replace(/^"+|"+$/g, '');
     
     // Split by comma and trim each value
     return cleaned.split(',').map(v => v.trim()).filter(v => v !== '' && v.toUpperCase() !== 'NULL');
@@ -499,6 +505,7 @@ async function importProductGroupAvailability() {
  *   ──────────────────────────────────────────────────────────────────────
  *   class_code          →  code                 →  TEXT
  *   class_name          →  name                 →  TEXT
+ *   store_type          →  store_type          →  TEXT      →  normalize to lowercase ('grosir', 'retail', 'all')
  *   target_monthly      →  target_monthly       →  DECIMAL   →  toNumber()
  *   cashback_percentage →  cashback_percentage  →  DECIMAL   →  toNumber()
  */
@@ -506,16 +513,82 @@ async function importStoreLoyaltyClasses() {
     console.log('📦 Importing store loyalty classes...');
     const rows = readCSV('master_loyalty_class.csv');
     
-    const data = rows.map(row => ({
-        code: row.class_code,                              // CSV: class_code → DB: code
-        name: row.class_name,                              // CSV: class_name → DB: name
-        target_monthly: toNumber(row.target_monthly, false),           // CSV: target_monthly → DB: target_monthly
-        cashback_percentage: toNumber(row.cashback_percentage, false)  // CSV: cashback_percentage → DB: cashback_percentage
-    }));
+    // Normalize store_type: Grosir -> grosir, Retail -> retail, All -> all
+    function normalizeStoreType(value) {
+        if (!value || value.trim() === '') return 'all';
+        const normalized = value.trim().toLowerCase();
+        if (normalized === 'grosir' || normalized === 'retail' || normalized === 'all') {
+            return normalized;
+        }
+        // Handle case variations
+        if (normalized.includes('grosir')) return 'grosir';
+        if (normalized.includes('retail')) return 'retail';
+        return 'all';
+    }
     
-    const { error } = await supabase.from('store_loyalty_classes').upsert(data, { onConflict: 'code' });
-    if (error) throw error;
-    console.log(`✅ Imported ${data.length} store loyalty classes`);
+    const data = rows.map(row => {
+        // Use class_code as-is (e.g., "S - 4.500%") - don't extract, keep full string for uniqueness
+        const finalCode = row.class_code ? row.class_code.trim() : (row.class_name || '');
+        const finalName = row.class_name || row.class_code || finalCode;
+        
+        return {
+            code: finalCode,                                    // CSV: class_code → DB: code (use full string, e.g., "S - 4.500%")
+            name: finalName,                                    // CSV: class_name → DB: name
+            store_type: normalizeStoreType(row.store_type),    // CSV: store_type → DB: store_type (normalize to lowercase)
+            target_monthly: toNumber(row.target_monthly, false),           // CSV: target_monthly → DB: target_monthly
+            cashback_percentage: toNumber(row.cashback_percentage, false)  // CSV: cashback_percentage → DB: cashback_percentage
+        };
+    });
+    
+    // Check for duplicates: throw error if duplicate (code, store_type) found
+    const seenKeys = new Map(); // key -> row index
+    const duplicates = [];
+    
+    data.forEach((item, index) => {
+        const key = `${item.code}|${item.store_type}`;
+        
+        if (seenKeys.has(key)) {
+            // Duplicate found - collect for error message
+            const firstIndex = seenKeys.get(key);
+            duplicates.push({
+                key: key,
+                code: item.code,
+                store_type: item.store_type,
+                firstRow: firstIndex + 2, // +2 because CSV has header and 0-indexed
+                duplicateRow: index + 2
+            });
+        } else {
+            seenKeys.set(key, index);
+        }
+    });
+    
+    // Throw error if duplicates found
+    if (duplicates.length > 0) {
+        const errorMsg = `❌ Duplicate entries found in CSV. Each (code, store_type) combination must be unique:\n` +
+            duplicates.map(dup => 
+                `   - Row ${dup.duplicateRow}: ${dup.code} (${dup.store_type}) duplicates Row ${dup.firstRow}`
+            ).join('\n') +
+            `\n\nPlease fix the CSV file to remove duplicates.`;
+        throw new Error(errorMsg);
+    }
+    
+    const uniqueData = data;
+    
+    // Use upsert with conflict on (code, store_type) since we have UNIQUE(code, store_type)
+    // Insert one by one to avoid "cannot affect row a second time" error
+    let successCount = 0;
+    for (const item of uniqueData) {
+        const { error } = await supabase
+            .from('store_loyalty_classes')
+            .upsert(item, { onConflict: 'code,store_type' });
+        if (error) {
+            console.error(`❌ Error upserting ${item.code} (${item.store_type}):`, error);
+            throw error;
+        }
+        successCount++;
+    }
+    
+    console.log(`✅ Imported ${successCount} store loyalty classes`);
 }
 
 /**
@@ -537,15 +610,34 @@ async function importStoreLoyaltyClasses() {
 async function importStoreLoyaltyAvailability() {
     console.log('📦 Importing store loyalty availability...');
     const rows = readCSV('master_loyalty_availability.csv');
+    console.log(`📋 Found ${rows.length} rows in CSV`);
     
-    const data = rows.map(row => ({
-        loyalty_class_code: row.loyalty_class_code,      // CSV: loyalty_class_code → DB: loyalty_class_code
-        rule_type: row.rule_type,                        // CSV: rule_type → DB: rule_type
-        level: row.level,                                // CSV: level → DB: level
-        zone_codes: parseArray(row.zone_code || ''),     // CSV: zone_code → DB: zone_codes (TEXT[]) - note: CSV uses singular
-        region_codes: parseArray(row.region_code || ''), // CSV: region_code → DB: region_codes (TEXT[]) - note: CSV uses singular
-        depo_codes: parseArray(row.depo_code || '')      // CSV: depo_code → DB: depo_codes (TEXT[]) - note: CSV uses singular
-    }));
+    const data = rows
+        .map((row, index) => {
+            // Use loyalty_class_code as-is (e.g., "C - 3.000%") - don't extract, keep full string
+            // This must match the code format used in store_loyalty_classes
+            const loyaltyClassCode = row.loyalty_class_code ? row.loyalty_class_code.trim() : '';
+            
+            // Skip if loyalty_class_code is empty
+            if (!loyaltyClassCode || loyaltyClassCode.trim() === '') {
+                console.warn(`⚠️  Skipping row ${index + 2}: empty loyalty_class_code`);
+                return null;
+            }
+            
+            return {
+                loyalty_class_code: loyaltyClassCode,        // CSV: loyalty_class_code → DB: loyalty_class_code (use full string, e.g., "C - 3.000%")
+                rule_type: row.rule_type,                        // CSV: rule_type → DB: rule_type
+                level: row.level,                                // CSV: level → DB: level
+                zone_codes: parseArray(row.zone_codes || row.zone_code || ''),     // CSV: zone_codes/zone_code → DB: zone_codes (TEXT[])
+                region_codes: parseArray(row.region_codes || row.region_code || ''), // CSV: region_codes/region_code → DB: region_codes (TEXT[])
+                depo_codes: parseArray(row.depo_codes || row.depo_code || '')      // CSV: depo_codes/depo_code → DB: depo_codes (TEXT[])
+            };
+        })
+        .filter(item => item !== null); // Remove null entries
+    
+    if (data.length < rows.length) {
+        console.log(`⚠️  Filtered ${rows.length - data.length} invalid row(s)`);
+    }
     
     const { error } = await supabase.from('store_loyalty_availability').insert(data);
     if (error) throw error;

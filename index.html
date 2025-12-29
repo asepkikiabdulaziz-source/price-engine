@@ -48,28 +48,7 @@
                     <h1>Nabaticuan</h1>
                 </div>
                 <div class="header-user-info" id="header-user-info" style="display: none;">
-                    <div class="user-info-items">
-                        <div class="user-info-item">
-                            <span class="user-info-label">Nama:</span>
-                            <span class="user-info-value" id="user-name">-</span>
-                        </div>
-                        <div class="user-info-item">
-                            <span class="user-info-label">Depo:</span>
-                            <span class="user-info-value" id="user-depo">-</span>
-                        </div>
-                        <div class="user-info-item">
-                            <span class="user-info-label">Region:</span>
-                            <span class="user-info-value" id="user-region">-</span>
-                        </div>
-                        <div class="user-info-item">
-                            <span class="user-info-label">Zona:</span>
-                            <span class="user-info-value" id="user-zona">-</span>
-                        </div>
-                        <div class="user-info-item">
-                            <span class="user-info-label">Divisi:</span>
-                            <span class="user-info-value" id="user-div-sls">-</span>
-                        </div>
-                    </div>
+                    <div class="user-info-simple" id="user-info-simple">-</div>
                     <div class="header-right">
                         <button id="logout-btn" class="btn btn-secondary">Logout</button>
                     </div>
@@ -77,18 +56,14 @@
             </header>
             <main class="main-content">
                 <!-- Store Type Selection (Outside tab, always visible) -->
-                <div class="card store-type-card">
-                    <h2>Type Toko</h2>
-                    <div class="store-type-options">
-                        <label class="radio-option">
-                            <input type="radio" name="store-type" value="retail" id="store-retail">
-                            <span>Retail</span>
-                        </label>
-                        <label class="radio-option">
-                            <input type="radio" name="store-type" value="grosir" id="store-grosir">
-                            <span>Grosir</span>
-                        </label>
-                    </div>
+                <div class="card store-type-card" style="display: flex; justify-content: space-between; align-items: center; gap: 15px;">
+                    <select id="store-type" name="store-type" class="store-type-select">
+                        <option value="grosir" selected>Grosir</option>
+                        <option value="retail">Retail</option>
+                    </select>
+                    <select id="loyalty-class" name="loyalty-class" class="loyalty-class-select">
+                        <option value="">-- Pilih Kelas --</option>
+                    </select>
                 </div>
 
                 <!-- Main Layout: Tab Content + Cart Sidebar -->
@@ -183,7 +158,21 @@
                                         <option value="CBD">CBD</option>
                                     </select>
                                 </div>
+                                <div class="calc-row voucher-row">
+                                    <span>Voucher:</span>
+                                    <input type="tel" id="voucher-input" class="voucher-input" placeholder="Input voucher...">
+                                </div>
+                                <div class="calc-row final-total-row">
+                                    <span><strong>Final Tagihan:</strong></span>
+                                    <span class="amount total" id="final-tagihan"><strong>Rp 0</strong></span>
+                                </div>
                             </div>
+                        </div>
+                        
+                        <!-- Cart Actions -->
+                        <div class="cart-actions">
+                            <button id="cart-reset-button" class="btn btn-danger btn-block">🗑️ Reset</button>
+                            <button id="cart-lihat-faktur-button" class="btn btn-primary btn-block">🧾 Lihat Faktur</button>
                         </div>
                     </aside>
                 </div>
