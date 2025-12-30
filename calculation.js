@@ -399,6 +399,12 @@ export function calculateGroupPromoDiscount(
         }
 
         // For each promo, find the best tier and calculate discount
+        // IMPORTANT: Jika ada multiple promos untuk group yang sama, hanya gunakan promo dengan discount terbesar
+        // (bukan dijumlahkan, karena itu akan double-count)
+        let bestPromoDiscount = 0;
+        let bestPromoTier = null;
+        let bestPromo = null;
+        
         promosForGroup.forEach(promo => {
             // Get tiers for this promo
             const tiers = groupPromoTiers
@@ -458,13 +464,37 @@ export function calculateGroupPromoDiscount(
             // Find tier where: min_qty <= totalQty < min_qty_tier_berikutnya (dalam urutan)
             // Example: tiers 0.5, 1, 2 → tier 0.5 berlaku untuk 0.5 sd < 1
             // Example: tiers 0.5, 2 → tier 0.5 berlaku untuk 0.5 sd < 2
+            // SPECIAL CASE: Jika tier dengan min_qty < 1 (e.g., 0.5), dan ada tier berikutnya dengan min_qty = 1,
+            //               maka tier 0.5 berlaku sampai sebelum tier berikutnya yang min_qty > 1
+            //               (skip tier dengan min_qty = 1 jika tier sebelumnya adalah < 1)
             for (let i = 0; i < sortedTiers.length; i++) {
                 const tier = sortedTiers[i];
                 const minQty = parseFloat(tier.min_qty) || 0;
                 
-                // Find next tier in sequence (not necessarily minQty + 1)
-                const nextTier = sortedTiers[i + 1];
-                const nextMinQty = nextTier ? parseFloat(nextTier.min_qty) || Infinity : Infinity;
+                // Find next tier in sequence yang min_qty > 1 (skip tier dengan min_qty = 1 jika tier ini < 1)
+                let nextTier = null;
+                let nextMinQty = Infinity;
+                
+                if (minQty < 1) {
+                    // Untuk tier < 1, cari tier berikutnya yang min_qty > 1 (skip tier dengan min_qty = 1)
+                    for (let j = i + 1; j < sortedTiers.length; j++) {
+                        const candidateTier = sortedTiers[j];
+                        const candidateMinQty = parseFloat(candidateTier.min_qty) || 0;
+                        if (candidateMinQty > 1) {
+                            nextTier = candidateTier;
+                            nextMinQty = candidateMinQty;
+                            break;
+                        }
+                    }
+                    // Jika tidak ada tier dengan min_qty > 1, gunakan Infinity
+                    if (!nextTier) {
+                        nextMinQty = Infinity;
+                    }
+                } else {
+                    // Untuk tier >= 1, gunakan logic normal
+                    nextTier = sortedTiers[i + 1];
+                    nextMinQty = nextTier ? parseFloat(nextTier.min_qty) || Infinity : Infinity;
+                }
                 
                 // Check if totalQty falls within this tier's range
                 // Range: min_qty <= totalQty < min_qty_tier_berikutnya
@@ -524,14 +554,26 @@ export function calculateGroupPromoDiscount(
                 discountAmount = discountPerUnit * wholeKrt;
             }
             
-            // Store discount for this group
+            // Track discount untuk memilih promo terbaik (jika ada multiple promos)
+            if (discountAmount > bestPromoDiscount) {
+                bestPromoDiscount = discountAmount;
+                bestPromoTier = bestTier;
+                bestPromo = promo;
+            }
+        });
+        
+        // Hanya gunakan discount dari promo terbaik (jika ada)
+        // IMPORTANT: Jangan dijumlahkan jika ada multiple promos, hanya gunakan yang terbaik
+        if (bestPromoDiscount > 0) {
+            // Store discount for this group (hanya dari promo terbaik)
             if (!groupPromoDiscountByGroup.has(groupCode)) {
                 groupPromoDiscountByGroup.set(groupCode, 0);
             }
-            groupPromoDiscountByGroup.set(groupCode, groupPromoDiscountByGroup.get(groupCode) + discountAmount);
+            // Set discount (bukan tambahkan, karena hanya 1 promo terbaik yang digunakan)
+            groupPromoDiscountByGroup.set(groupCode, bestPromoDiscount);
             
-            totalGroupPromoDiscount += discountAmount;
-        });
+            totalGroupPromoDiscount += bestPromoDiscount;
+        }
     });
 
     // Return both total and per-group discounts

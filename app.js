@@ -288,6 +288,20 @@ function setupTabNavigation() {
             if (targetPane) {
                 targetPane.classList.add('active');
             }
+            
+            // Load promos data when promosi tab is clicked
+            // Use setTimeout to ensure DOM is updated before accessing container
+            if (targetTabId === 'tab-promosi') {
+                setTimeout(() => {
+                    loadPromosData().catch(err => {
+                        console.error('Error loading promos data on tab click:', err);
+                        const container = document.querySelector('#tab-promosi .promo-table-container');
+                        if (container) {
+                            container.innerHTML = '<p style="color: red;">Gagal memuat data promosi. Silakan refresh halaman.</p>';
+                        }
+                    });
+                }, 100);
+            }
         });
     });
 }
@@ -534,6 +548,11 @@ function showApp() {
     // Tampilkan user info jika user sudah login
     if (currentUser) {
         displayUserInfo(currentUser);
+        // Tampilkan header controls (store type & loyalty)
+        const headerControls = document.getElementById('header-controls');
+        if (headerControls) {
+            headerControls.style.display = 'block';
+        }
     }
     
     loadAppContent();
@@ -1635,8 +1654,22 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
     const container = document.querySelector('#tab-promosi .promo-table-container');
     if (!container) {
         console.warn('⚠️ Promo container not found');
+        // Try alternative selector
+        const altContainer = document.querySelector('.promo-table-container');
+        if (altContainer) {
+            console.log('✅ Found alternative container');
+            altContainer.innerHTML = '<p style="color: red;">Error: Container selector mismatch. Please check HTML structure.</p>';
+        }
         return;
     }
+    
+    console.log('✅ Rendering promos to container:', {
+        principal: promos.principal?.length || 0,
+        strata: promos.strata?.length || 0,
+        bundling: promos.bundling?.length || 0,
+        invoice: promos.invoice?.length || 0,
+        free_product: promos.free_product?.length || 0
+    });
     
     let html = '';
     
@@ -1664,7 +1697,7 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
             <span class="accordion-title">💰 Promo Reguler</span>
             <span class="accordion-count">(${principalCount} tier)</span>
         </div>`;
-        html += '<div class="accordion-content promo-accordion-content" style="display: none;">';
+        html += '<div class="accordion-content promo-accordion-content">';
         
         // Build flat list of all tiers with promo availability info
         const allPrincipalTiers = [];
@@ -1722,8 +1755,13 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
     
     // 2. Group Promo (Strata) with tiers
     if (promos.strata.length > 0) {
-        html += '<div class="promo-section-type">';
-        html += '<h3>📊 Promo Grup Produk (Strata)</h3>';
+        html += '<div class="accordion-item promo-accordion-item">';
+        html += `<div class="accordion-header promo-accordion-header" onclick="togglePromoAccordion(this)">
+            <span class="accordion-toggle">▼</span>
+            <span class="accordion-title">📊 Promo Grup Produk (Strata)</span>
+            <span class="accordion-count">(${promos.strata.length} promo)</span>
+        </div>`;
+        html += '<div class="accordion-content promo-accordion-content">';
         html += '<div class="promo-list">';
         promos.strata.forEach(promo => {
             html += `<div class="promo-item">
@@ -1776,7 +1814,7 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
             <span class="accordion-title">🎁 Promo Bundling</span>
             <span class="accordion-count">(${promos.bundling.length} promo)</span>
         </div>`;
-        html += '<div class="accordion-content promo-accordion-content" style="display: none;">';
+        html += '<div class="accordion-content promo-accordion-content">';
         html += '<div class="promo-list">';
         promos.bundling.forEach(promo => {
             // Get bucket IDs for this promo from bundlePromoGroupsList
@@ -1809,7 +1847,7 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
             <span class="accordion-title">🧾 Diskon Invoice</span>
             <span class="accordion-count">(${promos.invoice.length} promo)</span>
         </div>`;
-        html += '<div class="accordion-content promo-accordion-content" style="display: none;">';
+        html += '<div class="accordion-content promo-accordion-content">';
         html += '<div class="promo-list">';
         promos.invoice.forEach(promo => {
             html += `<div class="promo-item">
@@ -1830,7 +1868,7 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
             <span class="accordion-title">🎁 Promo Gratis Produk</span>
             <span class="accordion-count">(${promos.free_product.length} promo)</span>
         </div>`;
-        html += '<div class="accordion-content promo-accordion-content" style="display: none;">';
+        html += '<div class="accordion-content promo-accordion-content">';
         html += '<div class="promo-list">';
         promos.free_product.forEach(promo => {
             const triggerText = promo.trigger_type === 'nominal' 
@@ -1890,8 +1928,13 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
                 .sort((a, b) => b.targetMonthly - a.targetMonthly); // Sort descending by target_monthly
             
             if (loyaltyRulesWithData.length > 0) {
-                html += '<div class="promo-section-type">';
-                html += '<h3>🎯 Program Loyalty (Cashback)</h3>';
+                html += '<div class="accordion-item promo-accordion-item">';
+                html += `<div class="accordion-header promo-accordion-header" onclick="togglePromoAccordion(this)">
+                    <span class="accordion-toggle">▼</span>
+                    <span class="accordion-title">🎯 Program Loyalty (Cashback)</span>
+                    <span class="accordion-count">(${loyaltyRulesWithData.length} kelas)</span>
+                </div>`;
+                html += '<div class="accordion-content promo-accordion-content">';
                 html += '<div class="promo-list">';
                 html += '<table class="promo-tier-table">';
                 html += '<thead><tr><th>Kelas</th><th>Target Bulanan</th><th>Cashback</th></tr></thead>';
@@ -1906,13 +1949,17 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
                 });
                 
                 html += '</tbody></table>';
-                html += '</div></div>';
+                html += '</div>';
+                html += '</div></div>'; // Close accordion-content and accordion-item
             }
         }
     }
     
+    // Close promo-accordion-container
+    html += '</div>'; // Close promo-accordion-container
+    
     // If no promos available
-    if (html === '') {
+    if (html === '<div class="promo-accordion-container"></div>') {
         html = '<p>Tidak ada promosi yang tersedia saat ini.</p>';
     }
     
@@ -1924,28 +1971,49 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
  * Fungsi ini harus global karena dipanggil dari onclick attribute
  */
 window.togglePromoAccordion = function(header) {
-    const content = header.nextElementSibling;
+    const accordionItem = header.closest('.accordion-item');
+    if (!accordionItem) {
+        console.warn('⚠️ togglePromoAccordion: accordion-item not found');
+        return;
+    }
+    
+    const content = accordionItem.querySelector('.accordion-content');
     const toggle = header.querySelector('.accordion-toggle');
     
     if (!content || !toggle) {
-        console.warn('⚠️ togglePromoAccordion: content or toggle not found');
+        console.warn('⚠️ togglePromoAccordion: content or toggle not found', { content: !!content, toggle: !!toggle });
         return;
     }
     
     // Check current state: if display is 'none' or empty (default collapsed), expand it
-    const isCurrentlyHidden = content.style.display === 'none' || 
-                              content.style.display === '' ||
-                              window.getComputedStyle(content).display === 'none';
+    const currentDisplay = content.style.display;
+    const computedDisplay = window.getComputedStyle(content).display;
+    const isCurrentlyHidden = currentDisplay === 'none' || 
+                             currentDisplay === '' ||
+                             !currentDisplay ||
+                             computedDisplay === 'none';
     
-    if (isCurrentlyHidden) {
-        content.style.display = 'block';
-        toggle.textContent = '▲';
-        header.classList.add('expanded');
-    } else {
-        content.style.display = 'none';
+    // Toggle expanded class
+    const isExpanded = content.classList.contains('expanded');
+    
+    if (isExpanded) {
+        // Collapse
+        content.classList.remove('expanded');
         toggle.textContent = '▼';
-        header.classList.remove('expanded');
+        accordionItem.classList.remove('expanded');
+    } else {
+        // Expand
+        content.classList.add('expanded');
+        toggle.textContent = '▲';
+        accordionItem.classList.add('expanded');
     }
+    
+    console.log('Toggle promo accordion:', {
+        wasExpanded: isExpanded,
+        nowExpanded: content.classList.contains('expanded'),
+        computedDisplay: window.getComputedStyle(content).display,
+        maxHeight: window.getComputedStyle(content).maxHeight
+    });
 };
 
 /**
@@ -2107,7 +2175,56 @@ function getStrataUpsellingRecommendation(
         }
     }
     
+    // 6a. Jika belum ada current tier tapi qty > 0, gunakan tier pertama sebagai target
     if (!currentTier) {
+        if (currentQty > 0 && sortedTiers.length > 0) {
+            // Belum mencapai tier terendah, tapi ada qty di cart
+            // Tampilkan upsell untuk mencapai tier pertama
+            const firstTier = sortedTiers[0];
+            const firstTierMinQty = parseFloat(firstTier.min_qty) || 0;
+            const firstTierDiscount = parseFloat(firstTier.discount_per_unit) || 0;
+            const gapQty = Math.max(0, firstTierMinQty - currentQty);
+            
+            if (gapQty > 0) {
+                console.log(`  ✅ Upselling recommendation (pre-tier): gap=${gapQty} to reach tier 1 (min_qty=${firstTierMinQty}, discount=${firstTierDiscount})`);
+                
+                // Check variant requirement untuk tier pertama
+                const tierMode = promo.tier_mode || 'non mix';
+                let variantGap = 0;
+                let suggestedVariants = [];
+                
+                if (tierMode === 'mix' && firstTier.variant_count) {
+                    const requiredVariants = parseInt(firstTier.variant_count) || 0;
+                    const currentVariants = new Set(itemsInGroup.map(({ product }) => product.code));
+                    const currentVariantCount = currentVariants.size;
+                    
+                    variantGap = Math.max(0, requiredVariants - currentVariantCount);
+                    
+                    // Get suggested variants
+                    if (variantGap > 0 && allProducts) {
+                        suggestedVariants = allProducts
+                            .filter(p => {
+                                const groupInfo = productGroupMap.get(p.code);
+                                return groupInfo && groupInfo.code === groupCode && !currentVariants.has(p.code);
+                            })
+                            .slice(0, 3)
+                            .map(p => p.code);
+                    }
+                }
+                
+                return {
+                    groupCode: groupCode,
+                    groupName: productGroupMap.get(itemsInGroup[0].product.code)?.name || groupCode,
+                    currentDiscountPerUnit: 0, // Belum dapat discount
+                    nextDiscountPerUnit: firstTierDiscount,
+                    nextMinQty: firstTierMinQty,
+                    gapQty: gapQty,
+                    tierUnit: tierUnit,
+                    variantGap: variantGap,
+                    suggestedVariants: suggestedVariants
+                };
+            }
+        }
         console.log(`  ❌ No current tier found for group ${groupCode} with qty ${currentQty}`);
         return null;
     }
@@ -2616,6 +2733,7 @@ function updateUpsellingRecommendations() {
                 if (!productInfo) return;
                 
                 // Format: "Potongan saat ini 2300 tambah 1 krt lagi untuk mendapat potongan 2750"
+                // Atau jika belum dapat potongan: "Tambah 1 krt lagi untuk mendapat potongan 2300"
                 const currentDiscount = Math.round(upsellingRec.currentDiscountPerUnit || 0);
                 const nextDiscount = Math.round(upsellingRec.nextDiscountPerUnit || 0);
                 const gapQty = upsellingRec.gapQty.toFixed(1);
@@ -2623,11 +2741,20 @@ function updateUpsellingRecommendations() {
                 // Buat badge 1 baris yang informatif
                 const badge = document.createElement('div');
                 badge.className = 'upsell-item-badge-single-line';
+                
+                // Jika belum dapat potongan (currentDiscount = 0), gunakan pesan yang berbeda
+                if (currentDiscount === 0) {
+                    badge.innerHTML = `
+                        Tambah <strong>${gapQty} ${unitLabel}</strong> lagi 
+                        untuk mendapat potongan <strong>${nextDiscount.toLocaleString('id-ID')}</strong>
+                    `;
+                } else {
                 badge.innerHTML = `
                     Potongan saat ini <strong>${currentDiscount.toLocaleString('id-ID')}</strong> 
                     tambah <strong>${gapQty} ${unitLabel}</strong> lagi 
                     untuk mendapat potongan <strong>${nextDiscount.toLocaleString('id-ID')}</strong>
                 `;
+                }
                 
                 // Pastikan tidak ada badge yang sudah ada sebelum menambahkan
                 const existingBadge = productItem.querySelector('.upsell-item-badge-single-line');
@@ -3315,9 +3442,16 @@ function updateCalculationUpsellingRecommendations() {
                     
                     const groupName = recommendation.groupName || groupCode;
                     let message = `<strong>${groupName}:</strong> `;
+                    
+                    // Jika belum dapat potongan (currentDiscount = 0), gunakan pesan yang berbeda
+                    if (currentDiscount === 0) {
+                        message += `Tambah <strong>${gapQty} ${unitLabel}</strong> lagi `;
+                        message += `untuk mendapat potongan <strong>${nextDiscount.toLocaleString('id-ID')}</strong>`;
+                    } else {
                     message += `Potongan saat ini <strong>${currentDiscount.toLocaleString('id-ID')}</strong> `;
                     message += `tambah <strong>${gapQty} ${unitLabel}</strong> lagi `;
                     message += `untuk mendapat potongan <strong>${nextDiscount.toLocaleString('id-ID')}</strong>`;
+                    }
                     
                     // Tambahkan info variant jika diperlukan
                     if (recommendation.variantGap > 0 && recommendation.suggestedVariants && recommendation.suggestedVariants.length > 0) {
@@ -3677,7 +3811,7 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
                 
                 html += `
                     <div class="accordion-item" data-promo-id="${promoId}" data-bucket-id="${bucketId}" style="margin-left: 0; margin-top: 0; border-left: none;">
-                        <button class="accordion-header" onclick="toggleAccordion('${bucketAccordionId}')" style="background: #e2e6ea; font-size: 0.9em; padding: 10px 15px; font-weight: bold; color: #343a40;">
+                        <button class="accordion-header" onclick="toggleAccordion('${bucketAccordionId}')" style="background: #e2e6ea; font-size: 0.85em; font-weight: bold; color: #343a40;">
                             <span class="accordion-title">Bucket ${bucketId}</span>
                             <span class="accordion-icon" id="icon-${bucketAccordionId}">▼</span>
                         </button>
@@ -3965,9 +4099,10 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
                         🎯 Promo Strata (${upsellingRec.groupName})
                     </div>
                     <div style="font-size: 0.9em; color: #333; margin-bottom: 4px;">
-                        Tambah <strong>${upsellingRec.gapQty.toFixed(2)} ${unitLabel}</strong> lagi untuk dapat diskon 
-                        <strong>${formatCurrency(upsellingRec.nextDiscountPerUnit)}</strong> per ${unitLabel}
-                        (dari ${formatCurrency(upsellingRec.currentDiscountPerUnit)} menjadi ${formatCurrency(upsellingRec.nextDiscountPerUnit)} per ${unitLabel})
+                        ${Math.round(upsellingRec.currentDiscountPerUnit || 0) === 0
+                            ? `Tambah <strong>${upsellingRec.gapQty.toFixed(2)} ${unitLabel}</strong> lagi untuk dapat diskon <strong>${formatCurrency(upsellingRec.nextDiscountPerUnit)}</strong> per ${unitLabel}`
+                            : `Tambah <strong>${upsellingRec.gapQty.toFixed(2)} ${unitLabel}</strong> lagi untuk dapat diskon (dari ${formatCurrency(upsellingRec.currentDiscountPerUnit)} menjadi ${formatCurrency(upsellingRec.nextDiscountPerUnit)} per ${unitLabel})`
+                        }
                     </div>
                     ${upsellingRec.variantGap > 0 ? `
                         <div style="font-size: 0.85em; color: #666; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #ccc;">
@@ -4700,8 +4835,8 @@ function renderCartItem(productId, item) {
             
             // Rincian promo
             const promoDetails = [];
-            if (calcItem.discountRate > 0) {
-                promoDetails.push(`Principal: ${calcItem.discountRate.toFixed(2)}%`);
+            if (calcItem.discountAmount > 0) {
+                promoDetails.push(`Principal: ${formatCurrency(calcItem.discountAmount)}`);
             }
             if (itemGroupPromoDiscount > 0) {
                 promoDetails.push(`Strata: ${formatCurrency(itemGroupPromoDiscount)}`);
@@ -5126,6 +5261,20 @@ function resetSimulation() {
         totalNettPrice: 0
     });
     
+    // Reset all product nett prices to 0
+    updateProductNettPrices({
+        items: []
+    });
+    
+    // Remove all upselling recommendations (strata)
+    updateUpsellingRecommendations();
+    
+    // Remove all bundle promo upselling recommendations
+    updateBundleUpsellingRecommendations();
+    
+    // Remove all upselling recommendations in calculation display
+    updateCalculationUpsellingRecommendations();
+    
     // Update final tagihan
     updateFinalTagihan();
     
@@ -5287,7 +5436,9 @@ function showFakturModal() {
  * Update harga nett per product item setelah calculate
  */
 function updateProductNettPrices(result) {
-    if (!result || !result.items) return;
+    // Allow empty result for reset scenario
+    if (!result) result = { items: [] };
+    if (!result.items) result.items = [];
     
     const formatCurrency = (amount) => {
         // Pastikan amount adalah angka valid dan bulatkan ke bilangan bulat
@@ -5308,9 +5459,17 @@ function updateProductNettPrices(result) {
     });
     
     // Update setiap product item di cart (termasuk yang belum ada di result.items)
-    cart.forEach((cartItem, productId) => {
-        const qtyKrt = cartItem.quantities?.krt || cartItem.quantities?.unit_1 || 0;
-        const qtyBox = cartItem.quantities?.box || cartItem.quantities?.unit_2 || 0;
+    // If cart is empty, find all product items in DOM and reset them
+    const productIdsToUpdate = cart.size > 0 
+        ? Array.from(cart.keys())
+        : Array.from(document.querySelectorAll('[data-product-pricing]')).map(el => el.getAttribute('data-product-pricing')).filter(id => id);
+    
+    productIdsToUpdate.forEach(productId => {
+        if (!productId) return;
+        
+        const cartItem = cart.get(productId);
+        const qtyKrt = cartItem?.quantities?.krt || cartItem?.quantities?.unit_1 || 0;
+        const qtyBox = cartItem?.quantities?.box || cartItem?.quantities?.unit_2 || 0;
         const hasQty = qtyKrt > 0 || qtyBox > 0;
         
         // Show/hide nett summary - UPDATE SEMUA pricing divs (bisa ada di bundle dan group)
@@ -5507,10 +5666,14 @@ function calculateItemDetails(result) {
             }
         }
 
-        // 2. Bundle Promo Discount for this item (proportional per promo berdasarkan QTY)
+        // 2. Bundle Promo Discount for this item (proportional per promo berdasarkan QTY YANG DIGUNAKAN untuk package)
         // Item bisa masuk ke multiple bundle promos, jadi kita perlu hitung proporsi per promo
-        // Proporsi berdasarkan QTY (bukan harga), sehingga jika bucket 1 = 1 krt dan bucket 2 = 1 krt,
-        // potongan 3000 dibagi rata menjadi masing-masing 1500
+        // IMPORTANT: Proporsi berdasarkan QTY YANG DIGUNAKAN untuk membentuk package, bukan total qty
+        // Example: Promo 1 krt bucket 1 + 1 krt bucket 2 → 3000 per paket
+        //          Order: 1 krt bucket 1 + 2 krt bucket 2
+        //          Package = min(1, 2) = 1 package
+        //          Qty used: 1 (bucket 1) + 1 (bucket 2, dari 2 krt) = 2 krt
+        //          Distribusi: 1/2 × 3000 = 1500 (bucket 1), 1/2 × 3000 = 1500 (bucket 2)
         item.itemBundlePromoDiscount = 0;
         item.bundlePromoDiscountByPromo = {}; // Track discount per promo untuk breakdown di modal
         
@@ -5524,45 +5687,158 @@ function calculateItemDetails(result) {
                 
                 // Check if productId is in any bucket of this promo
                 let isInPromo = false;
-                promoData.buckets.forEach((productsInBucket) => {
+                let productBucketId = null;
+                promoData.buckets.forEach((productsInBucket, bucketId) => {
                     if (productsInBucket.includes(productId)) {
                         isInPromo = true;
+                        productBucketId = bucketId;
                     }
                 });
                 
-                if (!isInPromo) return;
+                if (!isInPromo || !productBucketId) return;
                 
-                // Calculate proportion for this promo based on QTY (not subtotal)
-                // Get all items that are in this promo and calculate total qty
-                let totalQtyInThisPromo = 0;
-                const itemQtyInPromo = new Map(); // productId -> qtyKrtTotal
+                // Get groups for this promo (to get required qty per bucket)
+                const groups = bundlePromoGroupsList?.filter(g => g.promo_id === promoId) || [];
+                if (groups.length === 0) return;
                 
-                result.items.forEach(it => {
-                    // Check if it.productId is in this promo
-                    let itIsInPromo = false;
-                    promoData.buckets.forEach((productsInBucket) => {
-                        if (productsInBucket.includes(it.productId)) {
-                            itIsInPromo = true;
+                // Build maps for required qty and bucket assignment
+                const requiredQtyPerBucket = new Map(); // bucketId -> requiredQty
+                const unitPerBucket = new Map(); // bucketId -> unit
+                const bucketIdForProduct = new Map(); // productId -> bucketId
+                
+                groups.forEach(group => {
+                    const bucketId = group.bucket_id;
+                    requiredQtyPerBucket.set(bucketId, parseFloat(group.total_quantity) || 0);
+                    unitPerBucket.set(bucketId, group.unit || 'unit_1');
+                    
+                    const productsInBucket = promoData.buckets.get(bucketId) || [];
+                    productsInBucket.forEach(pid => {
+                        bucketIdForProduct.set(pid, bucketId);
+                    });
+                });
+                
+                // Calculate packages formed per bucket (same logic as calculateBundlePromoDiscount)
+                const packagesPerBucket = new Map(); // bucketId -> packages
+                
+                groups.forEach(group => {
+                    const bucketId = group.bucket_id;
+                    const requiredQty = requiredQtyPerBucket.get(bucketId) || 0;
+                    const unit = unitPerBucket.get(bucketId) || 'unit_1';
+                    
+                    if (requiredQty <= 0) return;
+                    
+                    // Calculate total qty in this bucket from cart
+                    let totalQtyInBucket = 0;
+                    const productsInBucket = promoData.buckets.get(bucketId) || [];
+                    
+                    productsInBucket.forEach(pid => {
+                        const itQtyInfo = itemQtyMap.get(pid);
+                        if (!itQtyInfo) return;
+                        
+                        const itQtyKrtTotal = itQtyInfo.qtyKrtTotal || 0;
+                        
+                        // Convert to appropriate unit if needed
+                        if (unit === 'unit_1') {
+                            totalQtyInBucket += itQtyKrtTotal;
+                        } else {
+                            // For unit_2 or unit_3, we need product ratio
+                            // But since we're using qtyKrtTotal (already in krt), we'll use it as is
+                            // If unit is different, we might need to convert, but for now use qtyKrtTotal
+                            totalQtyInBucket += itQtyKrtTotal;
                         }
                     });
                     
-                    if (itIsInPromo) {
-                        const itQtyInfo = itemQtyMap.get(it.productId);
-                        if (itQtyInfo) {
-                            const itQtyKrtTotal = itQtyInfo.qtyKrtTotal || 0;
-                            totalQtyInThisPromo += itQtyKrtTotal;
-                            itemQtyInPromo.set(it.productId, itQtyKrtTotal);
-                        }
-                    }
+                    // Calculate how many packages can be formed from this bucket
+                    const packages = Math.floor(totalQtyInBucket / requiredQty);
+                    packagesPerBucket.set(bucketId, packages);
                 });
                 
-                // Calculate proportion and discount for this promo based on QTY
-                const currentItemQty = qtyKrtTotal || 0;
-                if (totalQtyInThisPromo > 0 && currentItemQty > 0) {
-                    const qtyProportion = currentItemQty / totalQtyInThisPromo;
-                    const itemDiscountForThisPromo = promoDiscount * qtyProportion;
+                if (packagesPerBucket.size === 0) return;
+                
+                // Number of complete packages = minimum of all buckets
+                const completePackages = Math.min(...Array.from(packagesPerBucket.values()));
+                
+                if (completePackages <= 0) return;
+                
+                // Apply max_packages limit if exists
+                const promo = bundlePromosList?.find(p => p.promo_id === promoId);
+                const maxPackages = promo?.max_packages ? parseFloat(promo.max_packages) : null;
+                const finalPackages = maxPackages ? Math.min(completePackages, maxPackages) : completePackages;
+                
+                // Calculate total qty USED for packages (2-level distribution)
+                // Level 1: Calculate qty used per bucket (total dari semua produk dalam bucket)
+                // Level 2: Distribute discount to bucket, then to products within bucket
+                const qtyUsedPerBucket = new Map(); // bucketId -> qtyUsed (total untuk bucket)
+                
+                groups.forEach(group => {
+                    const bucketId = group.bucket_id;
+                    const requiredQty = requiredQtyPerBucket.get(bucketId) || 0;
+                    
+                    if (requiredQty <= 0) return;
+                    
+                    // Calculate total qty in this bucket from all products
+                    let totalQtyInBucket = 0;
+                    const productsInBucket = promoData.buckets.get(bucketId) || [];
+                    
+                    productsInBucket.forEach(pid => {
+                        const itQtyInfo = itemQtyMap.get(pid);
+                        if (itQtyInfo) {
+                            totalQtyInBucket += itQtyInfo.qtyKrtTotal || 0;
+                        }
+                    });
+                    
+                    // Qty used untuk bucket = min(total qty dalam bucket, requiredQty × finalPackages)
+                    const qtyUsed = Math.min(totalQtyInBucket, requiredQty * finalPackages);
+                    qtyUsedPerBucket.set(bucketId, qtyUsed);
+                });
+                
+                // Calculate total qty used (sum dari semua bucket)
+                let totalQtyUsedInThisPromo = 0;
+                qtyUsedPerBucket.forEach(qtyUsed => {
+                    totalQtyUsedInThisPromo += qtyUsed;
+                });
+                
+                if (totalQtyUsedInThisPromo <= 0) return;
+                
+                // Level 1: Calculate discount per bucket (proporsional berdasarkan qty used per bucket)
+                const discountPerBucket = new Map(); // bucketId -> discount
+                qtyUsedPerBucket.forEach((qtyUsed, bucketId) => {
+                    const bucketProportion = qtyUsed / totalQtyUsedInThisPromo;
+                    const bucketDiscount = promoDiscount * bucketProportion;
+                    discountPerBucket.set(bucketId, bucketDiscount);
+                });
+                
+                // Level 2: Distribute discount to products within bucket (proporsional berdasarkan qty actual per produk)
+                // Use productBucketId that was already determined above (line 5598)
+                if (productBucketId && discountPerBucket.has(productBucketId)) {
+                    const bucketDiscount = discountPerBucket.get(productBucketId);
+                    const qtyUsedForBucket = qtyUsedPerBucket.get(productBucketId) || 0;
+                    
+                    if (qtyUsedForBucket <= 0) return;
+                    
+                    // Calculate total qty actual per product in this bucket
+                    const productsInBucket = promoData.buckets.get(productBucketId) || [];
+                    let totalQtyActualInBucket = 0;
+                    
+                    productsInBucket.forEach(pid => {
+                        const itQtyInfo = itemQtyMap.get(pid);
+                        if (itQtyInfo) {
+                            totalQtyActualInBucket += itQtyInfo.qtyKrtTotal || 0;
+                        }
+                    });
+                    
+                    if (totalQtyActualInBucket <= 0) return;
+                    
+                    // Distribute bucket discount to products proportionally based on actual qty
+                    // Note: qtyUsedForBucket sudah di-limit, jadi kita distribusi berdasarkan actual qty
+                    // tapi proporsinya tetap benar karena total qty actual >= qty used
+                    const currentItemQty = itemQtyMap.get(productId)?.qtyKrtTotal || 0;
+                    if (currentItemQty > 0) {
+                        const productProportion = currentItemQty / totalQtyActualInBucket;
+                        const itemDiscountForThisPromo = bucketDiscount * productProportion;
                     item.itemBundlePromoDiscount += itemDiscountForThisPromo;
                     item.bundlePromoDiscountByPromo[promoId] = itemDiscountForThisPromo;
+                    }
                 }
             });
         }
