@@ -1,4 +1,10 @@
 {
+  "name": "price-engine",
+  "version": "1.0.0",
+  "description": "Price Engine - Aplikasi Manajemen Harga",
+  "scripts": {
+    "build": "node build.js"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.89.0",
     "csv-parse": "^6.1.0"
