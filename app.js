@@ -33,22 +33,39 @@ import {
 } from './database.js';
 import { calculateTotal } from './calculation.js';
 
-// Development mode - set to false for production
-const DEV_MODE = false; // Set to false to use database (true = bypass auth, use dummy data)
+// SECURITY: DEV_MODE removed - Authentication is always required in production builds
+// For local development, use a local Supabase instance or mock data setup
+// DO NOT add DEV_MODE back - it's a security risk
+
+/**
+ * SECURITY: HTML escaping utility to prevent XSS attacks
+ * Escapes special HTML characters in user-generated content
+ * @param {string} text - Text to escape
+ * @returns {string} - Escaped text safe for HTML insertion
+ */
+function escapeHtml(text) {
+    if (text == null) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+}
+
+/**
+ * SECURITY: Safe HTML insertion using textContent for dynamic content
+ * Use this instead of innerHTML when inserting user-generated or database content
+ * @param {HTMLElement} element - Target element
+ * @param {string} text - Text content (will be escaped)
+ */
+function setSafeText(element, text) {
+    if (element) {
+        element.textContent = text != null ? String(text) : '';
+    }
+}
 
 // Initialize app
 let currentUser = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // In development mode, skip auth and show UI directly
-    if (DEV_MODE) {
-        console.log('Development mode: Bypassing authentication');
-        currentUser = { id: 'dev-user', email: 'dev@example.com' };
-        showApp();
-        setupEventListeners();
-        return;
-    }
-    
     try {
         await initAuth();
         
@@ -91,12 +108,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         setupDetailHargaListeners();
     } catch (error) {
         console.error('Error initializing app:', error);
-        // Fallback to dev mode if initialization fails
-        console.log('Falling back to development mode');
-        currentUser = { id: 'dev-user', email: 'dev@example.com' };
-        showApp();
-        setupEventListeners();
-        setupDetailHargaListeners();
+        // SECURITY: No fallback to dev mode - authentication is required
+        // Show error message to user instead
+        const loginSection = document.getElementById('login-section');
+        const loginError = document.getElementById('login-error');
+        if (loginSection && loginError) {
+            loginError.textContent = 'Gagal menginisialisasi aplikasi. Silakan refresh halaman atau hubungi administrator.';
+            loginError.classList.add('show');
+        }
     }
 });
 
@@ -4172,7 +4191,13 @@ window.toggleAccordion = function(accordionId) {
 function showError(message) {
     const container = document.getElementById('product-groups');
     if (container) {
-        container.innerHTML = `<div class="error-message" style="padding: 20px; color: red;">${message}</div>`;
+        // SECURITY: Escape error message to prevent XSS
+        container.innerHTML = '';
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error-message';
+        errorDiv.style.cssText = 'padding: 20px; color: red;';
+        errorDiv.textContent = message;
+        container.appendChild(errorDiv);
     }
 }
 
@@ -6238,7 +6263,10 @@ function showDetailHargaModal(productId) {
         </div>
     `;
     
-    priceModalTitle.textContent = `Rincian Harga: ${product.code} - ${product.name}`;
+    // SECURITY: Escape product code and name
+    priceModalTitle.textContent = `Rincian Harga: ${escapeHtml(product.code)} - ${escapeHtml(product.name)}`;
+    // Note: detailHtml contains formatted currency which is safe (numbers only)
+    // but we still need to be careful - in production, consider using DOMPurify for complex HTML
     priceModalDetails.innerHTML = detailHtml;
     priceModal.style.display = 'block';
     
@@ -6265,8 +6293,12 @@ window.showGroupPromoModal = function(groupCode) {
     );
     
     if (!groupPromo) {
-        promoModalTitle.textContent = `📊 Info Promo - Group ${groupCode}`;
-        promoModalDetails.innerHTML = '<p>Tidak ada promo yang tersedia untuk group ini.</p>';
+        promoModalTitle.textContent = `📊 Info Promo - Group ${escapeHtml(groupCode)}`;
+        // SECURITY: Use safe text insertion for static messages
+        promoModalDetails.textContent = '';
+        const p = document.createElement('p');
+        p.textContent = 'Tidak ada promo yang tersedia untuk group ini.';
+        promoModalDetails.appendChild(p);
         promoModal.style.display = 'block';
         return;
     }
@@ -6284,14 +6316,15 @@ window.showGroupPromoModal = function(groupCode) {
         }).format(roundedAmount);
     };
     
+    // SECURITY: Escape all database values to prevent XSS
     let html = `
         <div style="margin-bottom: 15px;">
-            <h4 style="color: #1e3a8a; margin-bottom: 10px;">${groupPromo.promo_id || 'N/A'}</h4>
-            <p style="color: #666; margin-bottom: 10px;">${groupPromo.description || '-'}</p>
+            <h4 style="color: #1e3a8a; margin-bottom: 10px;">${escapeHtml(groupPromo.promo_id || 'N/A')}</h4>
+            <p style="color: #666; margin-bottom: 10px;">${escapeHtml(groupPromo.description || '-')}</p>
             <div style="font-size: 0.9em; color: #888;">
-                <strong>Group:</strong> ${groupPromo.product_group_code || '-'} | 
-                <strong>Mode:</strong> ${groupPromo.tier_mode || '-'} | 
-                <strong>Unit:</strong> ${groupPromo.tier_unit || '-'}
+                <strong>Group:</strong> ${escapeHtml(groupPromo.product_group_code || '-')} | 
+                <strong>Mode:</strong> ${escapeHtml(groupPromo.tier_mode || '-')} | 
+                <strong>Unit:</strong> ${escapeHtml(groupPromo.tier_unit || '-')}
             </div>
         </div>
     `;
@@ -6308,16 +6341,21 @@ window.showGroupPromoModal = function(groupCode) {
         
         html += '<tbody>';
         promoTiers.forEach(tier => {
+            // SECURITY: Escape numeric values (though less critical, still good practice)
+            const minQty = escapeHtml(String(tier.min_qty || ''));
+            const variantCount = tier.variant_count != null ? escapeHtml(String(tier.variant_count)) : '-';
+            const discountFormatted = formatCurrency(tier.discount_per_unit); // formatCurrency already returns safe string
+            
             if (groupPromo.tier_mode === "mix") {
                 html += `<tr>
-                    <td><strong>${tier.min_qty}</strong></td>
-                    <td style="color: var(--success-color, #28a745); font-weight: bold;">${formatCurrency(tier.discount_per_unit)}</td>
-                    <td>${tier.variant_count || '-'}</td>
+                    <td><strong>${minQty}</strong></td>
+                    <td style="color: var(--success-color, #28a745); font-weight: bold;">${discountFormatted}</td>
+                    <td>${variantCount}</td>
                 </tr>`;
             } else {
                 html += `<tr>
-                    <td><strong>${tier.min_qty}</strong></td>
-                    <td style="color: var(--success-color, #28a745); font-weight: bold;">${formatCurrency(tier.discount_per_unit)}</td>
+                    <td><strong>${minQty}</strong></td>
+                    <td style="color: var(--success-color, #28a745); font-weight: bold;">${discountFormatted}</td>
                 </tr>`;
             }
         });
@@ -6349,8 +6387,12 @@ window.showBundlePromoModal = function(promoId) {
     const bundlePromo = bundlePromosList.find(promo => promo.promo_id === promoId);
     
     if (!bundlePromo) {
-        promoModalTitle.textContent = `Info Promo - Paket ${promoId}`;
-        promoModalDetails.innerHTML = '<p>Tidak ada promo yang tersedia untuk paket ini.</p>';
+        promoModalTitle.textContent = `Info Promo - Paket ${escapeHtml(promoId)}`;
+        // SECURITY: Use safe text insertion
+        promoModalDetails.textContent = '';
+        const p = document.createElement('p');
+        p.textContent = 'Tidak ada promo yang tersedia untuk paket ini.';
+        promoModalDetails.appendChild(p);
         promoModal.style.display = 'block';
         return;
     }
@@ -6371,16 +6413,17 @@ window.showBundlePromoModal = function(promoId) {
         }).format(roundedAmount);
     };
     
+    // SECURITY: Escape all database values
     let html = `
         <div style="margin-bottom: 15px;">
-            <h4 style="color: #1e3a8a; margin-bottom: 10px;">Paket ${bundlePromo.promo_id || 'N/A'}</h4>
-            <p style="color: #666; margin-bottom: 10px;">${bundlePromo.description || '-'}</p>
+            <h4 style="color: #1e3a8a; margin-bottom: 10px;">Paket ${escapeHtml(bundlePromo.promo_id || 'N/A')}</h4>
+            <p style="color: #666; margin-bottom: 10px;">${escapeHtml(bundlePromo.description || '-')}</p>
             <div style="font-size: 0.9em; color: #888; margin-bottom: 10px;">
-                <strong>${bucketIds.join(', ') || '-'}</strong>
+                <strong>${escapeHtml(bucketIds.join(', ') || '-')}</strong>
             </div>
             <div style="font-size: 0.9em; color: #888;">
                 <strong>Diskon per paket:</strong> <span style="color: var(--success-color, #28a745); font-weight: bold;">${formatCurrency(bundlePromo.discount_per_package || 0)}</span>
-                ${bundlePromo.max_packages ? ` | <strong>Max paket:</strong> ${bundlePromo.max_packages}` : ''}
+                ${bundlePromo.max_packages ? ` | <strong>Max paket:</strong> ${escapeHtml(String(bundlePromo.max_packages))}` : ''}
             </div>
         </div>
     `;
@@ -6396,9 +6439,12 @@ window.showBundlePromoModal = function(promoId) {
         bucketIds.forEach(bucketId => {
             const productIds = buckets.get(bucketId) || [];
             if (productIds.length > 0) {
+                // SECURITY: Escape bucketId and productIds
+                const safeBucketId = escapeHtml(bucketId);
+                const safeProductIds = productIds.map(id => escapeHtml(id)).join(', ');
                 html += `<div style="margin-bottom: 10px;">`;
-                html += `<strong>${bucketId}:</strong> `;
-                html += `<span style="font-size: 0.9em; color: #666;">${productIds.join(', ')}</span>`;
+                html += `<strong>${safeBucketId}:</strong> `;
+                html += `<span style="font-size: 0.9em; color: #666;">${safeProductIds}</span>`;
                 html += `</div>`;
             }
         });

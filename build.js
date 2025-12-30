@@ -5,9 +5,25 @@
 const fs = require('fs');
 const path = require('path');
 
-// Ambil environment variables dari Netlify (atau fallback ke default)
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://dthgezcoklarfwbzkqym.supabase.co';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR0aGdlemNva2xhcmZ3YnprcXltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM0MDg0OTAsImV4cCI6MjA3ODk4NDQ5MH0.cyPwOIFsbfKc0akAhAcVVkhAIdAi_Iyt4DU2B-eVpwk';
+// Ambil environment variables dari environment (Netlify, CI/CD, atau local .env)
+// SECURITY: NO HARDCODED CREDENTIALS - Must be provided via environment variables
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+
+// Validate that environment variables are provided
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    console.error('❌ ERROR: Missing required environment variables!');
+    console.error('   Please set SUPABASE_URL and SUPABASE_ANON_KEY environment variables.');
+    console.error('   For local development, create a .env file or set them in your environment.');
+    process.exit(1);
+}
+
+// Additional validation - ensure values are not placeholders
+if (SUPABASE_URL === 'YOUR_SUPABASE_URL' || SUPABASE_ANON_KEY === 'YOUR_SUPABASE_ANON_KEY') {
+    console.error('❌ ERROR: Environment variables contain placeholder values!');
+    console.error('   Please provide actual Supabase credentials.');
+    process.exit(1);
+}
 
 // Generate env.js content
 const envContent = `// Environment Configuration
