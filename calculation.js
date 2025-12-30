@@ -166,6 +166,8 @@ export function calculatePrincipalDiscount(
     });
     
     // 3. Untuk setiap promo, cari tier terbaik per principal
+    // NOTE: Jika principal_codes adalah array dengan multiple principals, 
+    //       total gabungan dari semua principals di array harus >= min_purchase_amount
     const bestDiscountPerPrincipal = new Map();
     
     availableTiersByPromo.forEach((tiers, promoId) => {
@@ -188,22 +190,48 @@ export function calculatePrincipalDiscount(
             // Normalize principal codes
             principalCodes = principalCodes.map(code => String(code).toUpperCase().trim()).filter(Boolean);
             
-            // Check if minimum purchase is met for any of these principals
-            principalCodes.forEach(principalCode => {
+            if (principalCodes.length === 0) return;
+            
+            const minPurchase = parseFloat(tier.min_purchase_amount) || 0;
+            // Normalize discount percentage (support both decimal 0.01 and percentage 5)
+            // discount_percentage dalam format persentase (1 = 1%, 5 = 5%)
+            const tierDiscount = parseFloat(tier.discount_percentage) || 0;
+            
+            // Jika principal_codes adalah array dengan multiple principals,
+            // hitung TOTAL GABUNGAN dari semua principals di array
+            if (principalCodes.length > 1) {
+                // Hitung total gabungan
+                let totalCombined = 0;
+                principalCodes.forEach(principalCode => {
+                    totalCombined += totalPerPrincipal.get(principalCode) || 0;
+                });
+                
+                // Jika total gabungan >= min_purchase_amount, tier qualify
+                // Discount diterapkan ke SEMUA principals di array
+                if (totalCombined >= minPurchase) {
+                    principalCodes.forEach(principalCode => {
+                        const currentDiscount = bestDiscountPerPrincipal.get(principalCode) || 0;
+                        // Use the higher discount
+                        if (tierDiscount > currentDiscount) {
+                            bestDiscountPerPrincipal.set(principalCode, tierDiscount);
+                        }
+                    });
+                }
+            } else {
+                // Single principal: hitung per principal
+                const principalCode = principalCodes[0];
                 const totalPurchase = totalPerPrincipal.get(principalCode) || 0;
-                const minPurchase = parseFloat(tier.min_purchase_amount) || 0;
                 
                 if (totalPurchase >= minPurchase) {
                     // This tier qualifies - check if it's better than existing
                     const currentDiscount = bestDiscountPerPrincipal.get(principalCode) || 0;
-                    const tierDiscount = parseFloat(tier.discount_percentage) || 0;
                     
-                    // Use the higher discount (or first one if equal)
+                    // Use the higher discount
                     if (tierDiscount > currentDiscount) {
                         bestDiscountPerPrincipal.set(principalCode, tierDiscount);
                     }
                 }
-            });
+            }
         });
     });
     
@@ -719,10 +747,669 @@ export function calculateInvoiceDiscount(
 
     // Calculate discount amount: totalAfterOtherDiscounts × discount_percentage / 100
     // NOTE: Discount is calculated on totalAfterOtherDiscounts (after other discounts)
+    // discount_percentage dalam format persentase (1 = 1%, 5 = 5%)
     const discountPercentage = parseFloat(bestDiscount.discount_percentage) || 0;
     const discountAmount = totalAfterOtherDiscounts * (discountPercentage / 100);
 
     return discountAmount;
+}
+
+/**
+ * Calculate free product promo discount
+ * Free product promo menggunakan skema diskon, bukan free product fisik
+ * @param {Map} cart - Cart items
+ * @param {Map} productDataMap - Product data map
+ * @param {Map} productGroupMap - Map product code -> { code, name }
+ * @param {Map} principalMap - Map product code -> principal code
+ * @param {Array} freeProductPromos - Array of free product promo rules
+ * @param {Array} freeProductPromoTiers - Array of free product promo tiers (for percentage with tiers)
+ * @param {Array} promoAvailabilityRules - Array of promo availability rules
+ * @param {string} storeType - Store type ('grosir' or 'retail')
+ * @param {string} userZona - User's zona
+ * @param {string} userRegion - User's region
+ * @param {string} userDepo - User's depo
+ * @param {Function} isPromoAvailable - Function to check if promo is available
+ * @param {number} totalAfterOtherDiscounts - Total after principal, group, and bundle discounts
+ * @returns {number} Total free product discount amount
+ */
+export function calculateFreeProductDiscount(
+    cart,
+    productDataMap,
+    productGroupMap,
+    principalMap,
+    freeProductPromos,
+    freeProductPromoTiers,
+    promoAvailabilityRules,
+    storeType,
+    userZona,
+    userRegion,
+    userDepo,
+    isPromoAvailable,
+    totalAfterOtherDiscounts
+) {
+    // ========================================
+    // 🎁 FREE PRODUCT PROMO CALCULATION START
+    // ========================================
+    console.log('%c🎁 FREE PRODUCT PROMO CALCULATION START', 'background: #ff6b6b; color: white; font-size: 14px; font-weight: bold; padding: 4px 8px;');
+    console.log('Cart size:', cart?.size || 0);
+    console.log('Free product promos count:', freeProductPromos?.length || 0);
+    
+    if (!cart || cart.size === 0) {
+        console.warn('%c⚠️ CART IS EMPTY', 'background: #ffa500; color: white; font-weight: bold; padding: 2px 6px;');
+        console.log('%c🎁 FREE PRODUCT PROMO CALCULATION END (EMPTY CART)', 'background: #ff6b6b; color: white; font-weight: bold; padding: 4px 8px;');
+        console.log('');
+        return 0;
+    }
+    
+    if (!freeProductPromos || freeProductPromos.length === 0) {
+        console.warn('%c⚠️ NO FREE PRODUCT PROMOS LOADED', 'background: #ffa500; color: white; font-weight: bold; padding: 2px 6px;');
+        console.log('%c🎁 FREE PRODUCT PROMO CALCULATION END (NO PROMOS DATA)', 'background: #ff6b6b; color: white; font-weight: bold; padding: 4px 8px;');
+        console.log('');
+        return 0;
+    }
+
+    // 1. Filter available free product promos
+    console.log(`%c🔍 FILTERING PROMOS BY AVAILABILITY`, 'background: #4dabf7; color: white; font-weight: bold; padding: 2px 6px;');
+    console.log(`Store type: ${storeType} | Zona: ${userZona} | Region: ${userRegion} | Depo: ${userDepo}`);
+    console.log(`Total promos: ${freeProductPromos.length}`);
+    
+    const availablePromos = freeProductPromos.filter(promo => {
+        const isAvailable = isPromoAvailable(
+            promo.promo_id,
+            'free_product',
+            promoAvailabilityRules,
+            storeType,
+            userZona,
+            userRegion,
+            userDepo
+        );
+        
+        // Log each promo availability check
+        const promoRules = promoAvailabilityRules.filter(rule => 
+            rule.promo_id === promo.promo_id && rule.promo_type === 'free_product'
+        );
+        const storeTypeRules = promoRules.filter(rule => {
+            if (rule.store_type === 'all') return true;
+            return rule.store_type === storeType;
+        });
+        
+        console.log(`  ${isAvailable ? '✅' : '❌'} Promo ${promo.promo_id}: ${isAvailable ? 'AVAILABLE' : 'NOT AVAILABLE'}`);
+        if (promoRules.length > 0) {
+            console.log(`    Rules: ${promoRules.length} total, ${storeTypeRules.length} match store_type '${storeType}'`);
+            promoRules.forEach(rule => {
+                console.log(`      - store_type: ${rule.store_type}, rule_type: ${rule.rule_type}, level: ${rule.level}`);
+            });
+        } else {
+            console.log(`    ⚠️ No rules found - defaulting to available`);
+        }
+        
+        return isAvailable;
+    });
+
+    if (availablePromos.length === 0) {
+        console.warn('%c⚠️ NO AVAILABLE FREE PRODUCT PROMOS', 'background: #ffa500; color: white; font-weight: bold; padding: 2px 6px;');
+        console.log('All promos:', freeProductPromos.map(p => p.promo_id));
+        console.log('Store type:', storeType, '| Zona:', userZona, '| Region:', userRegion, '| Depo:', userDepo);
+        console.log('%c🎁 FREE PRODUCT PROMO CALCULATION END (NO PROMOS)', 'background: #ff6b6b; color: white; font-weight: bold; padding: 4px 8px;');
+        return {
+            total: 0,
+            byGroup: new Map()
+        };
+    }
+
+    console.log(`%c✅ ${availablePromos.length} AVAILABLE PROMO(S)`, 'background: #51cf66; color: white; font-weight: bold; padding: 2px 6px;', availablePromos.map(p => p.promo_id));
+
+    let totalFreeProductDiscount = 0;
+    const freeProductDiscountByGroup = new Map(); // groupCode -> discountAmount
+    const usedPromosByGroup = new Map(); // groupCode -> Set of promo_id (track which promos already used for each group)
+    
+    // Helper function untuk convert qty berdasarkan unit
+    const convertQtyToBox = (qty, unit, ratio = 1) => {
+        if (!unit || unit === 'unit_2' || unit === 'box' || unit === 'pcs') {
+            return qty; // Already in box/pcs
+        } else if (unit === 'unit_1' || unit === 'krt') {
+            return qty * ratio; // Convert krt to box
+        }
+        return qty; // Default: assume already in box
+    };
+    
+    // Helper function untuk mencari tier yang sesuai
+    const findApplicableTier = (tiers, totalQty, unitMinQty, ratio) => {
+        if (!tiers || tiers.length === 0) {
+            return null;
+        }
+        
+        // Sort tiers by priority (ascending) atau min_quantity (ascending)
+        const sortedTiers = [...tiers].sort((a, b) => {
+            // Sort by priority first, then by min_quantity
+            if (a.priority !== b.priority) {
+                return (a.priority || 0) - (b.priority || 0);
+            }
+            return (a.min_quantity || 0) - (b.min_quantity || 0);
+        });
+        
+        // Find tier where: min_quantity <= totalQty <= max_quantity (atau max_quantity IS NULL)
+        for (const tier of sortedTiers) {
+            const tierMinQty = parseFloat(tier.min_quantity) || 0;
+            const tierMaxQty = tier.max_quantity !== null && tier.max_quantity !== undefined 
+                ? parseFloat(tier.max_quantity) 
+                : null;
+            
+            // Convert tier min/max ke box jika perlu
+            const tierMinQtyInBox = convertQtyToBox(tierMinQty, unitMinQty, ratio);
+            const tierMaxQtyInBox = tierMaxQty !== null 
+                ? convertQtyToBox(tierMaxQty, unitMinQty, ratio)
+                : null;
+            
+            // Check if totalQty falls within this tier's range
+            if (totalQty >= tierMinQtyInBox) {
+                if (tierMaxQtyInBox === null || totalQty <= tierMaxQtyInBox) {
+                    return tier; // Found applicable tier
+                }
+            }
+        }
+        
+        // TIDAK ADA TIER YANG APPLICABLE: Return null (TIDAK ada fallback)
+        return null;
+    };
+    
+    // Helper function untuk mendapatkan discount percentage (HANYA dari tiers, TIDAK ada fallback)
+    const getDiscountPercentage = (promo, tiers, totalQty, unitMinQty, ratio) => {
+        if (promo.discount_type !== 'percentage') {
+            return null; // Bukan percentage discount
+        }
+        
+        // Cek apakah ada tiers untuk promo ini
+        const promoTiers = tiers.filter(t => t.promo_id === promo.promo_id);
+        
+        if (promoTiers.length === 0) {
+            // TIDAK ADA TIERS: Skip promo (tidak pakai discount_percentage dari header)
+            if (window.DEBUG_FREE_PRODUCT) {
+                console.warn(`  ⚠️ No tiers found for promo ${promo.promo_id}, skipping percentage discount`);
+            }
+            return null;
+        }
+        
+        // PAKAI TIERS: Cari tier yang sesuai
+        const applicableTier = findApplicableTier(promoTiers, totalQty, unitMinQty, ratio);
+        
+        if (applicableTier) {
+            if (window.DEBUG_FREE_PRODUCT) {
+                console.log(`  🎯 Using tier: ${applicableTier.min_quantity}-${applicableTier.max_quantity || '∞'}, discount: ${applicableTier.discount_percentage}%`);
+            }
+            return parseFloat(applicableTier.discount_percentage) || 0;
+        } else {
+            // TIDAK ADA TIER YANG APPLICABLE: Skip promo
+            if (window.DEBUG_FREE_PRODUCT) {
+                console.warn(`  ⚠️ No applicable tier found for promo ${promo.promo_id}, skipping`);
+            }
+            return null;
+        }
+    };
+
+    // 2. For each available promo, calculate discount
+    // Sort promos by priority if available (higher priority first)
+    const sortedPromos = [...availablePromos].sort((a, b) => {
+        const priorityA = a.priority || 0;
+        const priorityB = b.priority || 0;
+        return priorityB - priorityA; // Higher priority first
+    });
+    
+    sortedPromos.forEach(promo => {
+        const triggerType = promo.trigger_type || 'qty';
+        const purchaseScope = promo.purchase_scope || 'total_invoice';
+        const discountType = promo.discount_type || 'fixed';
+        const freeQuantity = parseFloat(promo.free_quantity) || 0;
+
+        if (freeQuantity <= 0) {
+            return; // Invalid promo
+        }
+
+        let discountAmount = 0;
+        let groupCodes = []; // Define at function scope level
+        let matchedProducts = []; // Track matched products for this promo
+
+        // 3. Calculate based on purchase_scope
+        if (purchaseScope === 'group') {
+            // Group-based: hitung qty dalam group tertentu
+            // Handle group_codes: bisa array atau string (dari database bisa jadi string jika single value)
+            if (Array.isArray(promo.group_codes)) {
+                groupCodes = promo.group_codes;
+            } else if (typeof promo.group_codes === 'string' && promo.group_codes.trim()) {
+                // Parse string seperti "CSD-E02K-24" atau "{CSD-E02K-24}"
+                const cleaned = promo.group_codes.trim().replace(/^\{|\}$/g, '');
+                groupCodes = cleaned.split(',').map(g => g.trim()).filter(g => g);
+            }
+            
+            if (groupCodes.length === 0) {
+                console.warn(`⚠️ Free Product Promo ${promo.promo_id}: No groups specified`);
+                return; // No groups specified
+            }
+
+
+            // Debug logging - always show for troubleshooting
+            console.log(`%c🔍 PROMO: ${promo.promo_id}`, 'background: #4dabf7; color: white; font-weight: bold; padding: 2px 6px;', {
+                purchaseScope,
+                groupCodes: groupCodes.join(', '),
+                triggerType,
+                minQuantity: `${promo.min_quantity} ${promo.unit_min_quantity || 'box'}`,
+                freeQuantity: `${freeQuantity} ${promo.unit_free_quantity || 'box'}`,
+                discountType,
+                discountPerUnit: promo.discount_per_unit ? `Rp ${promo.discount_per_unit.toLocaleString('id-ID')}` : 'N/A'
+            });
+
+            // Hitung total qty untuk semua groups
+            let totalQtyInGroups = 0;
+            matchedProducts = []; // Reset matched products for this promo (use function scope variable)
+            let firstRatio = 1; // Untuk convert min_quantity jika unit_min_quantity = 'unit_1'
+            
+            groupCodes.forEach(groupCode => {
+                cart.forEach((item, productId) => {
+                    const groupInfo = productGroupMap.get(productId);
+                    if (groupInfo && groupInfo.code === groupCode) {
+                        const qtyKrt = item.quantities?.krt || item.quantities?.unit_1 || 0;
+                        const qtyBox = item.quantities?.box || item.quantities?.unit_2 || 0;
+                        const product = productDataMap.get(productId);
+                        const ratio = product?.ratio_unit_2_per_unit_1 || 1;
+                        if (firstRatio === 1 && ratio > 1) {
+                            firstRatio = ratio; // Ambil ratio pertama untuk convert min_quantity
+                        }
+                        // Convert to unit_2 (box) for consistency
+                        const totalBoxes = (qtyKrt * ratio) + qtyBox;
+                        totalQtyInGroups += totalBoxes;
+                        matchedProducts.push({
+                            productId,
+                            productName: product?.name,
+                            groupCode: groupInfo.code,
+                            qtyKrt,
+                            qtyBox,
+                            totalBoxes,
+                            ratio
+                        });
+                    } else {
+                        // Debug: log products that don't match
+                        if (window.DEBUG_FREE_PRODUCT && cart.has(productId)) {
+                            const productGroup = productGroupMap.get(productId);
+                            if (!productGroup) {
+                                console.log(`  ⚠️ Product ${productId} has no group mapping`);
+                            } else if (productGroup.code !== groupCode) {
+                                console.log(`  ⚠️ Product ${productId} is in group "${productGroup.code}", not "${groupCode}"`);
+                            }
+                        }
+                    }
+                });
+            });
+            
+            // Debug: log if no products matched
+            if (matchedProducts.length === 0 && window.DEBUG_FREE_PRODUCT) {
+                console.warn(`  ⚠️ No products matched for groups: ${groupCodes.join(', ')}`);
+                console.log(`  Cart size: ${cart.size}`);
+                console.log(`  Product group map size: ${productGroupMap.size}`);
+                // Show first few products in cart
+                const cartProducts = Array.from(cart.keys()).slice(0, 5);
+                cartProducts.forEach(productId => {
+                    const groupInfo = productGroupMap.get(productId);
+                    console.log(`    Product ${productId}: group = ${groupInfo ? groupInfo.code : 'NO GROUP'}`);
+                });
+            }
+            
+            if (matchedProducts.length === 0) {
+                console.warn(`%c⚠️ NO PRODUCTS MATCHED`, 'background: #ffa500; color: white; font-weight: bold; padding: 2px 6px;', `for groups: ${groupCodes.join(', ')}`);
+                console.log(`Cart products:`, Array.from(cart.keys()).slice(0, 5).map(id => {
+                    const groupInfo = productGroupMap.get(id);
+                    return `${id} → ${groupInfo ? groupInfo.code : 'NO GROUP'}`;
+                }).join(', '));
+            } else {
+                console.log(`%c✅ ${matchedProducts.length} PRODUCT(S) MATCHED`, 'background: #51cf66; color: white; font-weight: bold; padding: 2px 6px;', matchedProducts.map(p => `${p.productId} (${p.totalBoxes} box)`).join(', '));
+                console.log(`Total qty: ${totalQtyInGroups} box`);
+            }
+
+            // Check trigger
+            if (triggerType === 'qty') {
+                const minQty = parseFloat(promo.min_quantity) || 0;
+                if (minQty <= 0) {
+                    if (window.DEBUG_FREE_PRODUCT) {
+                        console.warn(`  ⚠️ Invalid min_quantity: ${promo.min_quantity}`);
+                    }
+                    return; // Invalid min_quantity
+                }
+                
+                // Convert min_quantity ke box jika unit_min_quantity = 'unit_1' (krt)
+                const unitMinQty = promo.unit_min_quantity || 'unit_2'; // Default: unit_2 (box)
+                const minQtyInBox = convertQtyToBox(minQty, unitMinQty, firstRatio);
+                const triggerMet = totalQtyInGroups >= minQtyInBox;
+                
+                console.log(`%c${triggerMet ? '✅' : '❌'} TRIGGER: ${totalQtyInGroups} box ${triggerMet ? '>=' : '<'} ${minQtyInBox} box`, 
+                    triggerMet ? 'background: #51cf66; color: white; font-weight: bold; padding: 2px 6px;' : 'background: #ff6b6b; color: white; font-weight: bold; padding: 2px 6px;');
+                
+                if (triggerMet) {
+                    const multiples = Math.floor(totalQtyInGroups / minQtyInBox);
+                    console.log(`Multiples: ${multiples}`);
+                    
+                    if (discountType === 'fixed') {
+                        const discountPerUnit = parseFloat(promo.discount_per_unit) || 0;
+                        
+                        if (discountPerUnit <= 0) {
+                            console.warn(`%c⚠️ INVALID discount_per_unit: ${promo.discount_per_unit}`, 'background: #ffa500; color: white; font-weight: bold; padding: 2px 6px;');
+                            return; // Invalid discount_per_unit
+                        }
+                        
+                        discountAmount = multiples * freeQuantity * discountPerUnit;
+                        console.log(`%c💰 DISCOUNT: ${multiples} × ${freeQuantity} × Rp ${discountPerUnit.toLocaleString('id-ID')} = Rp ${discountAmount.toLocaleString('id-ID')}`, 
+                            'background: #ffd43b; color: #000; font-weight: bold; padding: 2px 6px;');
+                        
+                        // NOTE: Discount per group tracking is done at the end (line 1404) to avoid double tracking
+                    } else if (discountType === 'percentage') {
+                        // Get discount percentage (HANYA dari tiers, TIDAK ada fallback)
+                        const discountPercentage = getDiscountPercentage(
+                            promo,
+                            freeProductPromoTiers,
+                            totalQtyInGroups,
+                            promo.unit_min_quantity,
+                            firstRatio
+                        );
+                        
+                        // Jika tidak ada tiers atau tidak ada tier yang applicable, skip promo
+                        if (discountPercentage === null) {
+                            if (window.DEBUG_FREE_PRODUCT) {
+                                console.warn(`  ⚠️ Skipping promo ${promo.promo_id}: no tiers or no applicable tier`);
+                            }
+                            return; // Skip promo ini
+                        }
+                        
+                        // Hitung subtotal untuk groups ini
+                        let subtotalForGroups = 0;
+                        groupCodes.forEach(groupCode => {
+                            cart.forEach((item, productId) => {
+                                const groupInfo = productGroupMap.get(productId);
+                                if (groupInfo && groupInfo.code === groupCode) {
+                                    const product = productDataMap.get(productId);
+                                    const basePrice = product?.prices?.[userZona] || 0;
+                                    const qtyKrt = item.quantities?.krt || item.quantities?.unit_1 || 0;
+                                    const qtyBox = item.quantities?.box || item.quantities?.unit_2 || 0;
+                                    const ratio = product?.ratio_unit_2_per_unit_1 || 1;
+                                    const pricePerBox = basePrice / ratio;
+                                    subtotalForGroups += (qtyKrt * ratio + qtyBox) * pricePerBox;
+                                }
+                            });
+                        });
+                        discountAmount = subtotalForGroups * (discountPercentage / 100) * multiples;
+                        if (window.DEBUG_FREE_PRODUCT) {
+                            console.log(`  💰 Percentage discount: ${subtotalForGroups} × ${discountPercentage}% × ${multiples} = ${discountAmount}`);
+                        }
+                        
+                        // NOTE: Discount per group tracking is done at the end (line 1404) to avoid double tracking
+                    }
+                }
+            } else if (triggerType === 'nominal') {
+                // Hitung subtotal untuk groups
+                let subtotalForGroups = 0;
+                groupCodes.forEach(groupCode => {
+                    cart.forEach((item, productId) => {
+                        const groupInfo = productGroupMap.get(productId);
+                        if (groupInfo && groupInfo.code === groupCode) {
+                            const product = productDataMap.get(productId);
+                            const basePrice = product?.prices?.[userZona] || 0;
+                            const qtyKrt = item.quantities?.krt || item.quantities?.unit_1 || 0;
+                            const qtyBox = item.quantities?.box || item.quantities?.unit_2 || 0;
+                            const ratio = product?.ratio_unit_2_per_unit_1 || 1;
+                            const pricePerBox = basePrice / ratio;
+                            subtotalForGroups += (qtyKrt * ratio + qtyBox) * pricePerBox;
+                        }
+                    });
+                });
+
+                const minPurchase = parseFloat(promo.min_purchase_amount) || 0;
+                if (subtotalForGroups >= minPurchase) {
+                    if (discountType === 'fixed') {
+                        const discountPerUnit = parseFloat(promo.discount_per_unit) || 0;
+                        discountAmount = freeQuantity * discountPerUnit;
+                    } else if (discountType === 'percentage') {
+                        const discountPercentage = parseFloat(promo.discount_percentage) || 0;
+                        discountAmount = subtotalForGroups * (discountPercentage / 100);
+                    }
+                }
+            }
+
+        } else if (purchaseScope === 'total_invoice') {
+            // Total invoice: check against totalAfterOtherDiscounts
+            if (triggerType === 'nominal') {
+                const minPurchase = parseFloat(promo.min_purchase_amount) || 0;
+                if (totalAfterOtherDiscounts >= minPurchase) {
+                    if (discountType === 'fixed') {
+                        const discountPerUnit = parseFloat(promo.discount_per_unit) || 0;
+                        discountAmount = freeQuantity * discountPerUnit;
+                    } else if (discountType === 'percentage') {
+                        // Untuk nominal trigger dengan percentage, skip jika tidak ada tiers
+                        // (karena tiers biasanya berdasarkan quantity, bukan nominal)
+                        if (window.DEBUG_FREE_PRODUCT) {
+                            console.warn(`  ⚠️ Skipping promo ${promo.promo_id}: percentage discount with nominal trigger requires tiers`);
+                        }
+                        return; // Skip promo ini
+                    }
+                }
+            } else if (triggerType === 'qty') {
+                // Helper function untuk convert qty berdasarkan unit
+                const convertQtyToBox = (qty, unit, ratio = 1) => {
+                    if (!unit || unit === 'unit_2' || unit === 'box' || unit === 'pcs') {
+                        return qty; // Already in box/pcs
+                    } else if (unit === 'unit_1' || unit === 'krt') {
+                        return qty * ratio; // Convert krt to box
+                    }
+                    return qty; // Default: assume already in box
+                };
+                
+                // Hitung total qty dari cart (convert ke box)
+                let totalQty = 0;
+                let firstRatio = 1;
+                cart.forEach((item, productId) => {
+                    const qtyKrt = item.quantities?.krt || item.quantities?.unit_1 || 0;
+                    const qtyBox = item.quantities?.box || item.quantities?.unit_2 || 0;
+                    const product = productDataMap.get(productId);
+                    const ratio = product?.ratio_unit_2_per_unit_1 || 1;
+                    if (firstRatio === 1 && ratio > 1) {
+                        firstRatio = ratio;
+                    }
+                    totalQty += (qtyKrt * ratio) + qtyBox;
+                });
+
+                const minQty = parseFloat(promo.min_quantity) || 0;
+                // Convert min_quantity ke box jika unit_min_quantity = 'unit_1' (krt)
+                const unitMinQty = promo.unit_min_quantity || 'unit_2'; // Default: unit_2 (box)
+                const minQtyInBox = convertQtyToBox(minQty, unitMinQty, firstRatio);
+                
+                if (window.DEBUG_FREE_PRODUCT) {
+                    console.log(`  📏 Unit conversion: min_quantity=${minQty} ${unitMinQty} = ${minQtyInBox} box`);
+                }
+                
+                if (totalQty >= minQtyInBox) {
+                    const multiples = Math.floor(totalQty / minQtyInBox);
+                    if (window.DEBUG_FREE_PRODUCT) {
+                        console.log(`  ✅ Trigger met: ${totalQty} box >= ${minQtyInBox} box, multiples: ${multiples}`);
+                    }
+                    if (discountType === 'fixed') {
+                        const discountPerUnit = parseFloat(promo.discount_per_unit) || 0;
+                        discountAmount = multiples * freeQuantity * discountPerUnit;
+                    } else if (discountType === 'percentage') {
+                        // Get discount percentage (HANYA dari tiers, TIDAK ada fallback)
+                        const discountPercentage = getDiscountPercentage(
+                            promo,
+                            freeProductPromoTiers,
+                            totalQty,
+                            promo.unit_min_quantity,
+                            firstRatio
+                        );
+                        
+                        // Jika tidak ada tiers atau tidak ada tier yang applicable, skip promo
+                        if (discountPercentage === null) {
+                            if (window.DEBUG_FREE_PRODUCT) {
+                                console.warn(`  ⚠️ Skipping promo ${promo.promo_id}: no tiers or no applicable tier`);
+                            }
+                            return; // Skip promo ini
+                        }
+                        
+                        discountAmount = totalAfterOtherDiscounts * (discountPercentage / 100) * multiples;
+                        if (window.DEBUG_FREE_PRODUCT) {
+                            console.log(`  💰 Percentage discount: ${totalAfterOtherDiscounts} × ${discountPercentage}% × ${multiples} = ${discountAmount}`);
+                        }
+                    }
+                }
+            }
+        } else if (purchaseScope === 'per_principal' || purchaseScope === 'combined_principal') {
+            // Principal-based: hitung per principal atau gabungan
+            const principalCodes = Array.isArray(promo.principal_codes) ? promo.principal_codes : [];
+            if (principalCodes.length === 0) {
+                return; // No principals specified
+            }
+
+            // Hitung total purchase untuk principal(s)
+            let totalPurchaseForPrincipals = 0;
+            let totalQtyForPrincipals = 0;
+
+            cart.forEach((item, productId) => {
+                const principalCode = principalMap.get(productId) || productDataMap.get(productId)?.principal_code || '';
+                const normalizedPrincipalCode = String(principalCode).toUpperCase().trim();
+                
+                if (principalCodes.includes(normalizedPrincipalCode)) {
+                    const product = productDataMap.get(productId);
+                    const basePrice = product?.prices?.[userZona] || 0;
+                    const qtyKrt = item.quantities?.krt || item.quantities?.unit_1 || 0;
+                    const qtyBox = item.quantities?.box || item.quantities?.unit_2 || 0;
+                    const ratio = product?.ratio_unit_2_per_unit_1 || 1;
+                    const pricePerBox = basePrice / ratio;
+                    
+                    totalPurchaseForPrincipals += (qtyKrt * ratio + qtyBox) * pricePerBox;
+                    totalQtyForPrincipals += (qtyKrt * ratio) + qtyBox;
+                }
+            });
+
+            if (triggerType === 'nominal') {
+                const minPurchase = parseFloat(promo.min_purchase_amount) || 0;
+                if (totalPurchaseForPrincipals >= minPurchase) {
+                    if (discountType === 'fixed') {
+                        const discountPerUnit = parseFloat(promo.discount_per_unit) || 0;
+                        discountAmount = freeQuantity * discountPerUnit;
+                    } else if (discountType === 'percentage') {
+                        // Untuk nominal trigger dengan percentage, skip jika tidak ada tiers
+                        // (karena tiers biasanya berdasarkan quantity, bukan nominal)
+                        if (window.DEBUG_FREE_PRODUCT) {
+                            console.warn(`  ⚠️ Skipping promo ${promo.promo_id}: percentage discount with nominal trigger requires tiers`);
+                        }
+                        return; // Skip promo ini
+                    }
+                }
+            } else if (triggerType === 'qty') {
+                const minQty = parseFloat(promo.min_quantity) || 0;
+                // Convert min_quantity ke box jika unit_min_quantity = 'unit_1' (krt)
+                // Gunakan ratio dari produk pertama yang match
+                let firstRatio = 1;
+                cart.forEach((item, productId) => {
+                    const principalCode = principalMap.get(productId) || productDataMap.get(productId)?.principal_code || '';
+                    const normalizedPrincipalCode = String(principalCode).toUpperCase().trim();
+                    if (principalCodes.includes(normalizedPrincipalCode)) {
+                        const product = productDataMap.get(productId);
+                        const ratio = product?.ratio_unit_2_per_unit_1 || 1;
+                        if (firstRatio === 1 && ratio > 1) {
+                            firstRatio = ratio;
+                        }
+                    }
+                });
+                const unitMinQty = promo.unit_min_quantity || 'unit_2'; // Default: unit_2 (box)
+                const minQtyInBox = convertQtyToBox(minQty, unitMinQty, firstRatio);
+                
+                if (totalQtyForPrincipals >= minQtyInBox) {
+                    const multiples = Math.floor(totalQtyForPrincipals / minQtyInBox);
+                    if (discountType === 'fixed') {
+                        const discountPerUnit = parseFloat(promo.discount_per_unit) || 0;
+                        discountAmount = multiples * freeQuantity * discountPerUnit;
+                    } else if (discountType === 'percentage') {
+                        // Get discount percentage (HANYA dari tiers, TIDAK ada fallback)
+                        const discountPercentage = getDiscountPercentage(
+                            promo,
+                            freeProductPromoTiers,
+                            totalQtyForPrincipals,
+                            promo.unit_min_quantity,
+                            firstRatio
+                        );
+                        
+                        // Jika tidak ada tiers atau tidak ada tier yang applicable, skip promo
+                        if (discountPercentage === null) {
+                            if (window.DEBUG_FREE_PRODUCT) {
+                                console.warn(`  ⚠️ Skipping promo ${promo.promo_id}: no tiers or no applicable tier`);
+                            }
+                            return; // Skip promo ini
+                        }
+                        
+                        discountAmount = totalPurchaseForPrincipals * (discountPercentage / 100) * multiples;
+                        if (window.DEBUG_FREE_PRODUCT) {
+                            console.log(`  💰 Percentage discount: ${totalPurchaseForPrincipals} × ${discountPercentage}% × ${multiples} = ${discountAmount}`);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (discountAmount > 0) {
+            console.log(`%c✅ FINAL DISCOUNT: Rp ${discountAmount.toLocaleString('id-ID')}`, 
+                'background: #51cf66; color: white; font-weight: bold; padding: 2px 6px;', `for promo ${promo.promo_id}`);
+            totalFreeProductDiscount += discountAmount;
+            
+            // Track discount per group (only for group-based promos)
+            // Hanya track discount untuk group yang benar-benar ada produknya di cart
+            if (purchaseScope === 'group' && groupCodes && groupCodes.length > 0) {
+                // Get groups that actually have products in cart (from matchedProducts)
+                const groupsWithProducts = new Set();
+                if (matchedProducts && matchedProducts.length > 0) {
+                    matchedProducts.forEach(p => {
+                        if (p.groupCode) {
+                            groupsWithProducts.add(p.groupCode);
+                        }
+                    });
+                }
+                
+                // Only track discount for groups that have products
+                const eligibleGroups = groupCodes.filter(gc => groupsWithProducts.has(gc));
+                
+                if (eligibleGroups.length > 0) {
+                    eligibleGroups.forEach(groupCode => {
+                        if (!freeProductDiscountByGroup.has(groupCode)) {
+                            freeProductDiscountByGroup.set(groupCode, 0);
+                        }
+                        if (!usedPromosByGroup.has(groupCode)) {
+                            usedPromosByGroup.set(groupCode, new Set());
+                        }
+                        
+                        // Track that this promo is used for this group
+                        usedPromosByGroup.get(groupCode).add(promo.promo_id);
+                        
+                        // If promo applies to multiple groups, divide discount equally among groups with products
+                        const discountPerGroup = discountAmount / eligibleGroups.length;
+                        const previousDiscount = freeProductDiscountByGroup.get(groupCode) || 0;
+                        freeProductDiscountByGroup.set(groupCode, previousDiscount + discountPerGroup);
+                        console.log(`  📊 Track discount for group ${groupCode}: ${discountPerGroup.toLocaleString('id-ID')} (total for group: ${(previousDiscount + discountPerGroup).toLocaleString('id-ID')})`);
+                    });
+                } else {
+                    console.warn(`%c⚠️ SKIP TRACKING: No products in cart for groups: ${groupCodes.join(', ')}`, 
+                        'background: #ffa500; color: white; font-weight: bold; padding: 2px 6px;');
+                }
+            }
+        }
+    });
+
+    if (totalFreeProductDiscount > 0) {
+        console.log(`%c🎁 TOTAL FREE PRODUCT DISCOUNT: Rp ${totalFreeProductDiscount.toLocaleString('id-ID')}`, 
+            'background: #51cf66; color: white; font-size: 14px; font-weight: bold; padding: 4px 8px;');
+    } else {
+        console.warn(`%c⚠️ TOTAL FREE PRODUCT DISCOUNT = 0`, 
+            'background: #ffa500; color: white; font-size: 14px; font-weight: bold; padding: 4px 8px;');
+    }
+    console.log('%c🎁 FREE PRODUCT PROMO CALCULATION END', 'background: #ff6b6b; color: white; font-size: 14px; font-weight: bold; padding: 4px 8px;');
+    console.log(''); // Empty line for separation
+
+    return {
+        total: totalFreeProductDiscount,
+        byGroup: freeProductDiscountByGroup
+    };
 }
 
 /**
@@ -743,6 +1430,7 @@ export function calculateTotal({
     bundlePromoGroups,
     invoiceDiscounts,
     freeProductPromos,
+    freeProductPromoTiers = [],
     promoAvailabilityRules,
     productGroupAvailabilityRules,
     isProductGroupAvailable,
@@ -892,10 +1580,6 @@ export function calculateTotal({
     // Pastikan bundlePromoDiscount adalah number valid (bukan NaN atau Infinity)
     result.bundlePromoDiscount = (isNaN(result.bundlePromoDiscount) || !isFinite(result.bundlePromoDiscount)) ? 0 : result.bundlePromoDiscount;
     
-    // 6. Calculate invoice discount
-    // NOTE: min_purchase_amount is checked against basePrice (before any discounts)
-    //       but discount is calculated on totalAfterOtherDiscounts (after other discounts)
-    
     // Pastikan semua nilai di result adalah number valid sebelum perhitungan
     // Update result dengan nilai yang sudah divalidasi
     result.basePrice = (isNaN(result.basePrice) || !isFinite(result.basePrice)) ? 0 : result.basePrice;
@@ -905,6 +1589,48 @@ export function calculateTotal({
     
     // Hitung totalAfterOtherDiscounts menggunakan nilai dari result (yang sudah divalidasi)
     const totalAfterOtherDiscounts = result.basePrice - result.principalDiscount - result.groupPromoDiscount - result.bundlePromoDiscount;
+    
+    // 6. Calculate free product discount
+    // NOTE: Free product discount dihitung sebelum invoice discount
+    const freeProductResult = calculateFreeProductDiscount(
+        cart,
+        productDataMap,
+        productGroupMap,
+        principalMap,
+        freeProductPromos || [],
+        freeProductPromoTiers || [],
+        promoAvailabilityRules,
+        storeType,
+        userZona,
+        userRegion,
+        userDepo,
+        isPromoAvailable,
+        totalAfterOtherDiscounts
+    );
+    
+    // Handle return value (bisa object atau number untuk backward compatibility)
+    if (typeof freeProductResult === 'object' && freeProductResult !== null) {
+        result.freeProductDiscount = freeProductResult.total || 0;
+        result.freeProductDiscountByGroup = freeProductResult.byGroup || new Map();
+    } else {
+        result.freeProductDiscount = freeProductResult || 0;
+        result.freeProductDiscountByGroup = new Map();
+    }
+    
+    if (window.DEBUG_FREE_PRODUCT) {
+        console.log('📊 Free product discount result:', result.freeProductDiscount);
+        console.log('📊 Free product discount by group:', Array.from(result.freeProductDiscountByGroup.entries()));
+    }
+    
+    // Pastikan freeProductDiscount adalah number valid
+    result.freeProductDiscount = (isNaN(result.freeProductDiscount) || !isFinite(result.freeProductDiscount)) ? 0 : result.freeProductDiscount;
+    
+    // Hitung total setelah free product discount
+    const totalAfterFreeProductDiscount = totalAfterOtherDiscounts - result.freeProductDiscount;
+    
+    // 7. Calculate invoice discount
+    // NOTE: min_purchase_amount is checked against basePrice (before any discounts)
+    //       but discount is calculated on totalAfterFreeProductDiscount (after free product discount)
     
     // Calculate invoice discount
     result.invoiceDiscount = calculateInvoiceDiscount(
@@ -917,10 +1643,9 @@ export function calculateTotal({
     // Pastikan invoiceDiscount adalah number valid
     result.invoiceDiscount = (isNaN(result.invoiceDiscount) || !isFinite(result.invoiceDiscount)) ? 0 : result.invoiceDiscount;
     
-    // TODO: Calculate free product discount
-    // Calculate total nett: basePrice - principalDiscount - groupPromoDiscount - bundlePromoDiscount - invoiceDiscount
+    // Calculate total nett: basePrice - principalDiscount - groupPromoDiscount - bundlePromoDiscount - freeProductDiscount - invoiceDiscount
     // Pastikan totalNett tidak negatif
-    result.totalNett = Math.max(0, totalAfterOtherDiscounts - result.invoiceDiscount);
+    result.totalNett = Math.max(0, totalAfterFreeProductDiscount - result.invoiceDiscount);
     
     // Pastikan totalNett adalah number valid
     result.totalNett = (isNaN(result.totalNett) || !isFinite(result.totalNett)) ? 0 : result.totalNett;

@@ -679,6 +679,68 @@ body {
     padding: 20px;
 }
 
+/* Promo Accordion Styles */
+.promo-accordion-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.promo-accordion-item {
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    background: #fff;
+    margin-bottom: 0.5rem;
+    overflow: hidden;
+}
+
+.promo-accordion-header {
+    display: flex;
+    align-items: center;
+    padding: 1rem;
+    background: #f8f9fa;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s;
+    gap: 0.75rem;
+}
+
+.promo-accordion-header:hover {
+    background: #e9ecef;
+}
+
+.promo-accordion-header.expanded {
+    background: #e9ecef;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.promo-accordion-header .accordion-toggle {
+    font-size: 0.8em;
+    color: #666;
+    transition: transform 0.2s;
+    flex-shrink: 0;
+    width: 20px;
+    text-align: center;
+}
+
+.promo-accordion-header .accordion-title {
+    flex: 1;
+    font-weight: 600;
+    font-size: 1.1em;
+    color: var(--primary-color, #007bff);
+}
+
+.promo-accordion-header .accordion-count {
+    font-size: 0.9em;
+    color: #666;
+    font-weight: normal;
+}
+
+.promo-accordion-content {
+    padding: 1rem;
+    background: #fff;
+}
+
 .promo-section-type {
     margin-bottom: 30px;
 }

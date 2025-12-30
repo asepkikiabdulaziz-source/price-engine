@@ -1,6 +1,5 @@
 // Main Application Logic
 import { initAuth, login, logout, getCurrentUser } from './auth.js';
-import { initDB, addPrice, getAllPrices, updatePrice, deletePrice } from './db.js';
 import { 
     loadProducts, 
     loadPrices, 
@@ -23,15 +22,18 @@ import {
     loadGroupPromoTiers,
     loadInvoiceDiscounts,
     loadFreeProductPromos,
+    loadFreeProductPromoTiers,
     batchGetProductPrincipals,
     loadLoyaltyClasses,
     loadLoyaltyAvailability,
     isLoyaltyClassAvailable,
-    resolveLoyaltyRule
+    resolveLoyaltyRule,
+    syncCollectionData,
+    getMasterVersion
 } from './database.js';
 import { calculateTotal } from './calculation.js';
 
-// Development mode - set to false when Supabase is configured
+// Development mode - set to false for production
 const DEV_MODE = false; // Set to false to use database (true = bypass auth, use dummy data)
 
 // Initialize app
@@ -49,7 +51,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     try {
         await initAuth();
-        await initDB();
         
         // Check if user is already logged in (dari localStorage)
         currentUser = await getCurrentUser();
@@ -326,7 +327,7 @@ function setupAddToCart() {
                 productPrice
             });
             
-            // TODO: Add to cart implementation
+            // Add to cart implementation
             // For now, just show alert
             const qtyStr = Object.entries(quantities)
                 .map(([unit, qty]) => `${qty} ${unit}`)
@@ -704,7 +705,7 @@ function checkIfCartHasKSNI() {
     
     for (const [productId, item] of cart) {
         const product = productDataMap.get(productId);
-        if (product && product.principal_id === 'KSNI') {
+        if (product && product.principal_code === 'KSNI') {
             return true;
         }
     }
@@ -805,6 +806,9 @@ async function loadAppContent() {
     
     try {
         // Load data from database
+        // Load cart from localStorage
+        loadCartFromLocalStorage();
+        
         await loadProductsData();
         
         // Load and display promos
@@ -815,6 +819,12 @@ async function loadAppContent() {
         
         // Setup add to cart handlers
         setupAddToCart();
+        
+        // Re-render cart if items were loaded from cache
+        if (cart.size > 0) {
+            renderKeranjang();
+            handleCalculate();
+        }
     } catch (error) {
         console.error('Error loading app content:', error);
         showError('Gagal memuat data. Silakan refresh halaman.');
@@ -838,13 +848,19 @@ async function loadProductsData() {
         
         console.log('📍 Using zone from user:', selectedZone);
         
-        // Load products
-        const products = await loadProducts();
-        console.log(`📦 Loaded ${products?.length || 0} products`);
+        // Load products dengan version checking
+        const productsResult = await syncCollectionData('master_products', 'master_products', loadProducts);
+        const products = productsResult.data || [];
+        console.log(`📦 Loaded ${products?.length || 0} products ${productsResult.fromCache ? '(from cache)' : '(from server)'}`);
         if (!products || products.length === 0) {
             console.warn('No products found');
             document.getElementById('product-groups').innerHTML = '<p>Tidak ada produk ditemukan. Silakan import data CSV terlebih dahulu.</p>';
             return;
+        }
+        
+        // Update AppStore
+        if (typeof window.AppStore !== 'undefined') {
+            window.AppStore.setProducts(products);
         }
         
         // Build product data map for cart display
@@ -853,13 +869,23 @@ async function loadProductsData() {
             productDataMap.set(product.code, product);
         });
         
-        // Load product groups
-        const productGroups = await loadProductGroups();
-        console.log(`📂 Loaded ${productGroups?.length || 0} product groups`);
+        // Load product groups dengan version checking
+        const groupsResult = await syncCollectionData('product_groups', 'product_groups', loadProductGroups);
+        const productGroups = groupsResult.data || [];
+        console.log(`📂 Loaded ${productGroups?.length || 0} product groups ${groupsResult.fromCache ? '(from cache)' : '(from server)'}`);
         
-        // Load product group availability rules
-        productGroupAvailabilityRules = await loadProductGroupAvailability();
-        console.log(`📋 Loaded ${productGroupAvailabilityRules?.length || 0} availability rules`);
+        if (typeof window.AppStore !== 'undefined') {
+            window.AppStore.setProductGroups(productGroups);
+        }
+        
+        // Load product group availability rules dengan version checking
+        const availabilityResult = await syncCollectionData('product_group_availability', 'product_group_availability', loadProductGroupAvailability);
+        productGroupAvailabilityRules = availabilityResult.data || [];
+        console.log(`📋 Loaded ${productGroupAvailabilityRules?.length || 0} availability rules ${availabilityResult.fromCache ? '(from cache)' : '(from server)'}`);
+        
+        if (typeof window.AppStore !== 'undefined') {
+            window.AppStore.setProductGroupAvailability(productGroupAvailabilityRules);
+        }
         
         // Filter groups based on availability rules (user's zona, region, depo)
         const userZona = currentUser?.zona || null;
@@ -884,12 +910,46 @@ async function loadProductsData() {
                 region: userRegion,
                 depo: userDepo
             });
-            console.log('Availability rules:', productGroupAvailabilityRules);
+            console.log('Availability rules count:', productGroupAvailabilityRules.length);
+            console.log('Availability rules (first 5):', productGroupAvailabilityRules.slice(0, 5));
+            console.log('All product groups:', productGroups.map(g => ({ code: g.code, name: g.name })));
+            
+            // Test each group individually
+            console.log('🔍 Testing each group availability:');
+            productGroups.slice(0, 10).forEach(group => {
+                const isAvailable = isProductGroupAvailable(
+                    group.code,
+                    productGroupAvailabilityRules,
+                    userZona,
+                    userRegion,
+                    userDepo
+                );
+                const groupRules = productGroupAvailabilityRules.filter(r => r.product_group_code === group.code);
+                console.log(`  - ${group.code}: ${isAvailable ? '✅' : '❌'} (${groupRules.length} rules)`);
+            });
         }
         
-        // Load product group members
-        const groupMembers = await loadProductGroupMembers();
-        console.log(`📋 Loaded ${groupMembers?.length || 0} product group members`);
+        // Load product group members dengan version checking
+        const membersResult = await syncCollectionData('product_group_members', 'product_group_members', loadProductGroupMembers);
+        const groupMembers = membersResult.data || [];
+        console.log(`📋 Loaded ${groupMembers?.length || 0} product group members ${membersResult.fromCache ? '(from cache)' : '(from server)'}`);
+        
+        // Debug: Check if data from cache is stale (missing code field)
+        if (groupMembers.length > 0) {
+            const firstMember = groupMembers[0];
+            if (!firstMember.code && !firstMember.product_code) {
+                console.error('❌ CRITICAL: Data from cache is stale! Missing both code and product_code.');
+                console.error('Solution: Clear cache or force refresh from server.');
+                console.error('First member:', firstMember);
+            } else if (!firstMember.code && firstMember.product_code) {
+                console.warn('⚠️ WARNING: Data from cache has product_code but not code. Cache might be stale.');
+                console.warn('First member:', firstMember);
+            }
+        }
+        
+        if (typeof window.AppStore !== 'undefined') {
+            window.AppStore.setProductGroupMembers(groupMembers);
+        }
         if (!groupMembers || groupMembers.length === 0) {
             console.warn('⚠️ No product group members found!');
         }
@@ -910,27 +970,107 @@ async function loadProductsData() {
         
         // Debug: Log first few members and available groups
         if (groupMembers && groupMembers.length > 0) {
-            console.log('🔍 Sample group members (first 3):', groupMembers.slice(0, 3).map(m => ({
-                product_id: m.product_id,
-                product_group_id: m.product_group_id,
-                product_group_id_type: typeof m.product_group_id
+            console.log('🔍 Sample group members from loadProductsData (first 5):', groupMembers.slice(0, 5).map(m => ({
+                code: m.code,
+                codeType: typeof m.code,
+                codeValue: `"${m.code}"`,
+                hasProductCode: 'product_code' in m,
+                product_code: m.product_code, // Check if original field still exists
+                product_group_code: m.product_group_code,
+                product_group_code_type: typeof m.product_group_code,
+                allKeys: Object.keys(m) // Show all available keys
             })));
-        }
-        if (availableGroups && availableGroups.length > 0) {
-            console.log('🔍 Sample available groups (first 3):', availableGroups.slice(0, 3).map(g => ({
-                id: g.id,
+            
+            // Check if code is undefined and try to use product_code as fallback
+            const firstMemberCheck = groupMembers[0];
+            if (firstMemberCheck && !firstMemberCheck.code && firstMemberCheck.product_code) {
+                console.warn('⚠️ WARNING: member.code is undefined but product_code exists! Using product_code as fallback.');
+                console.log('First member details:', {
+                    code: firstMemberCheck.code,
+                    product_code: firstMemberCheck.product_code,
+                    allKeys: Object.keys(firstMemberCheck)
+                });
+            }
+            console.log('🔍 Sample products (first 5):', products.slice(0, 5).map(p => ({
+                code: p.code,
+                codeType: typeof p.code,
+                codeLength: p.code?.length,
+                name: p.name
+            })));
+            console.log('🔍 Sample available groups (first 5):', availableGroups.slice(0, 5).map(g => ({
                 code: g.code,
-                name: g.name,
-                id_type: typeof g.id
+                codeType: typeof g.code,
+                name: g.name
             })));
+            
+            // Check for exact match between first member and first product
+            const firstMemberTest = groupMembers[0];
+            const firstProduct = products[0];
+            if (firstMemberTest && firstProduct) {
+                const memberCodeForTest = firstMemberTest.code || firstMemberTest.product_code;
+                console.log('🔍 Matching test (first member vs first product):', {
+                    memberCode: `"${memberCodeForTest}"`,
+                    productCode: `"${firstProduct.code}"`,
+                    exactMatch: memberCodeForTest === firstProduct.code,
+                    caseInsensitiveMatch: memberCodeForTest?.toUpperCase() === firstProduct.code?.toUpperCase(),
+                    trimmedMatch: memberCodeForTest?.trim() === firstProduct.code?.trim(),
+                    memberCodeCharCodes: memberCodeForTest?.split('').map(c => c.charCodeAt(0)),
+                    productCodeCharCodes: firstProduct.code?.split('').map(c => c.charCodeAt(0))
+                });
+            }
         }
         
         groupMembers.forEach(member => {
-            const product = products.find(p => p.code === member.product_id);
+            // REQUIREMENT: member.code must exist (transformed from product_code in loadProductGroupMembers)
+            // If member.code is undefined, it means:
+            // 1. Data in product_group_members table is missing product_code column
+            // 2. OR product_code values are NULL in the database
+            // 3. OR transformation in loadProductGroupMembers() failed
+            if (!member.code) {
+                unmatchedProductsCount++;
+                if (unmatchedProductsCount <= 3) {
+                    console.error('❌ ERROR: member.code is undefined!');
+                    console.error('Required columns from product_group_members table:');
+                    console.error('  - product_code (TEXT, NOT NULL) → transformed to member.code');
+                    console.error('  - product_group_code (TEXT, NOT NULL)');
+                    console.error('  - priority (INTEGER, default 0)');
+                    console.error('Current member object:', {
+                        member,
+                        allKeys: Object.keys(member),
+                        hasCode: 'code' in member,
+                        hasProductCode: 'product_code' in member
+                    });
+                }
+                return;
+            }
+            
+            // Try exact match first
+            let product = products.find(p => p.code === member.code);
+            
+            // If no exact match, try case-insensitive
+            if (!product) {
+                product = products.find(p => p.code?.toUpperCase() === member.code.toUpperCase());
+            }
+            
+            // If still no match, try trimmed
+            if (!product) {
+                product = products.find(p => p.code?.trim() === member.code.trim());
+            }
+            
             if (product) {
                 // Only add to groups that are available (in availableGroups)
-                // Note: member.product_group_id is now TEXT (code), not UUID
-                const group = availableGroups.find(g => g.code === member.product_group_id);
+                // Note: member.product_group_code is now TEXT (code), not UUID
+                let group = availableGroups.find(g => g.code === member.product_group_code);
+                
+                // If no exact match, try case-insensitive
+                if (!group && member.product_group_code) {
+                    group = availableGroups.find(g => g.code?.toUpperCase() === member.product_group_code.toUpperCase());
+                }
+                
+                // If still no match, try trimmed
+                if (!group && member.product_group_code) {
+                    group = availableGroups.find(g => g.code?.trim() === member.product_group_code.trim());
+                }
                 
                 if (group && groupMap.has(group.code)) {
                     groupMap.get(group.code).push({
@@ -950,43 +1090,125 @@ async function loadProductsData() {
                         // Only log first few to avoid spam
                         if (unmatchedGroupsCount <= 5) {
                             console.log(`⚠️ Group not found for member:`, {
-                                product_id: member.product_id,
-                                product_group_id: member.product_group_id,
-                                product_group_id_type: typeof member.product_group_id,
-                                available_group_ids: availableGroups.slice(0, 3).map(g => ({ id: g.id, code: g.code }))
+                                code: member.code,
+                                product_group_code: member.product_group_code,
+                                product_group_code_type: typeof member.product_group_code,
+                                available_group_codes: availableGroups.slice(0, 3).map(g => ({ code: g.code, name: g.name }))
                             });
                         }
                     }
                 }
             } else {
                 unmatchedProductsCount++;
-                // Only log first few to avoid spam
-                if (unmatchedProductsCount <= 5) {
-                    console.log(`⚠️ Product not found: ${member.product_id} (type: ${typeof member.product_id})`);
-                    console.log(`   Available product codes (first 5):`, products.slice(0, 5).map(p => ({ code: p.code, type: typeof p.code })));
+                // Log first 10 unmatched to see pattern
+                if (unmatchedProductsCount <= 10) {
+                    console.log(`⚠️ Product not found for member code: "${member.code}" (type: ${typeof member.code}, length: ${member.code?.length})`);
+                    console.log(`   Member code char codes:`, member.code?.split('').map(c => `${c}(${c.charCodeAt(0)})`).join(' '));
+                    
+                    // Find similar product codes (more aggressive search)
+                    const similarProducts = products.filter(p => {
+                        if (!p.code || !member.code) return false;
+                        const pCode = p.code.toUpperCase().trim();
+                        const mCode = member.code.toUpperCase().trim();
+                        // Check if first 3-5 chars match
+                        const minLen = Math.min(pCode.length, mCode.length, 5);
+                        return pCode.slice(0, minLen) === mCode.slice(0, minLen) || 
+                               pCode.includes(mCode.slice(0, 3)) || 
+                               mCode.includes(pCode.slice(0, 3));
+                    }).slice(0, 5);
+                    
+                    if (similarProducts.length > 0) {
+                        console.log(`   Similar product codes found (${similarProducts.length}):`, similarProducts.map(p => ({ 
+                            code: `"${p.code}"`, 
+                            type: typeof p.code,
+                            name: p.name,
+                            charCodes: p.code?.split('').map(c => `${c}(${c.charCodeAt(0)})`).join(' ')
+                        })));
+                    } else {
+                        console.log(`   No similar product codes found.`);
+                    }
+                    
+                    // Show all product codes for comparison (first 10)
+                    if (unmatchedProductsCount === 1) {
+                        console.log(`   All product codes (first 10):`, products.slice(0, 10).map(p => ({ 
+                            code: `"${p.code}"`, 
+                            type: typeof p.code,
+                            length: p.code?.length
+                        })));
+                    }
                 }
             }
         });
+        
+        // Show detailed comparison if no matches
+        if (matchedProductsCount === 0 && unmatchedProductsCount > 0) {
+            console.error('❌ CRITICAL: No products matched!');
+            console.log('📋 First 5 member codes:', groupMembers.slice(0, 5).map(m => ({
+                memberCode: `"${m.code}"`,
+                memberCodeType: typeof m.code,
+                memberCodeLength: m.code?.length,
+                memberCodeCharCodes: m.code?.split('').map(c => `${c}(${c.charCodeAt(0)})`).join(' ')
+            })));
+            console.log('📋 First 5 product codes:', products.slice(0, 5).map(p => ({
+                productCode: `"${p.code}"`,
+                productCodeType: typeof p.code,
+                productCodeLength: p.code?.length,
+                productCodeCharCodes: p.code?.split('').map(c => `${c}(${c.charCodeAt(0)})`).join(' ')
+            })));
+            
+            // Try to find any partial matches
+            const firstMemberCode = groupMembers[0]?.code;
+            if (firstMemberCode) {
+                const partialMatches = products.filter(p => {
+                    if (!p.code) return false;
+                    const pCode = p.code.toUpperCase().trim();
+                    const mCode = firstMemberCode.toUpperCase().trim();
+                    return pCode.includes(mCode) || mCode.includes(pCode) || 
+                           pCode.slice(0, 3) === mCode.slice(0, 3);
+                }).slice(0, 5);
+                console.log(`🔍 Partial matches for "${firstMemberCode}":`, partialMatches.map(p => ({
+                    code: `"${p.code}"`,
+                    name: p.name
+                })));
+            }
+        }
         
         console.log(`📊 Group mapping results:`, {
             matchedProducts: matchedProductsCount,
             unmatchedProducts: unmatchedProductsCount,
             unmatchedGroups: unmatchedGroupsCount,
-            groupMapSizes: Array.from(groupMap.entries()).map(([code, products]) => ({ code, count: products.length }))
+            groupMapSizes: Array.from(groupMap.entries()).map(([code, products]) => ({ 
+                code, 
+                count: products.length,
+                productCodes: products.map(p => p.product?.code || 'N/A').slice(0, 5) // First 5 product codes
+            })),
+            totalProductsInMap: Array.from(groupMap.values()).reduce((sum, arr) => sum + arr.length, 0),
+            availableGroupsCount: availableGroups.length,
+            groupMembersCount: groupMembers.length
         });
         
-        // Load promo availability rules
-        promoAvailabilityRules = await loadPromoAvailability();
-        console.log(`📋 Loaded ${promoAvailabilityRules?.length || 0} promo availability rules`);
+        // Load promo availability rules dengan version checking
+        const promoAvailabilityResult = await syncCollectionData('promo_availability', 'promo_availability', loadPromoAvailability);
+        promoAvailabilityRules = promoAvailabilityResult.data || [];
+        console.log(`📋 Loaded ${promoAvailabilityRules?.length || 0} promo availability rules ${promoAvailabilityResult.fromCache ? '(from cache)' : '(from server)'}`);
+        
+        if (typeof window.AppStore !== 'undefined') {
+            window.AppStore.setPromoAvailability(promoAvailabilityRules);
+        }
         
         // Get selected store type
         const storeTypeEl = document.getElementById('store-type');
         const selectedStoreType = storeTypeEl ? storeTypeEl.value : 'grosir'; // default grosir
         console.log(`🏪 Selected store type: ${selectedStoreType}`);
         
-        // Load bundle promos (for product display - already loaded above in promoAvailabilityRules context)
-        bundlePromosList = await loadBundlePromos();
-        console.log(`🎁 Loaded ${bundlePromosList?.length || 0} bundle promos`);
+        // Load bundle promos dengan version checking
+        const bundlePromosResult = await syncCollectionData('bundle_promos', 'bundle_promos', loadBundlePromos);
+        bundlePromosList = bundlePromosResult.data || [];
+        console.log(`🎁 Loaded ${bundlePromosList?.length || 0} bundle promos ${bundlePromosResult.fromCache ? '(from cache)' : '(from server)'}`);
+        
+        if (typeof window.AppStore !== 'undefined') {
+            window.AppStore.setBundlePromos(bundlePromosList);
+        }
         
         // Filter promos based on availability (reuse userZona, userRegion, userDepo from above)
         const availablePromos = bundlePromosList.filter(promo => {
@@ -1002,14 +1224,20 @@ async function loadProductsData() {
         });
         console.log(`✅ Filtered ${bundlePromosList.length} promos to ${availablePromos.length} available promos`);
         
-        // Load bundle promo groups for all available promos
-        const allPromoGroups = await loadAllBundlePromoGroups();
-        bundlePromoGroupsList = allPromoGroups; // Store for calculation
-        console.log(`📦 Loaded ${allPromoGroups?.length || 0} bundle promo groups`);
+        // Load bundle promo groups dengan version checking
+        const bundlePromoGroupsResult = await syncCollectionData('bundle_promo_groups', 'bundle_promo_groups', loadAllBundlePromoGroups);
+        bundlePromoGroupsList = bundlePromoGroupsResult.data || [];
+        console.log(`📦 Loaded ${bundlePromoGroupsList?.length || 0} bundle promo groups ${bundlePromoGroupsResult.fromCache ? '(from cache)' : '(from server)'}`);
         
-        // Load bucket members
-        const bucketMembers = await loadBucketMembers();
-        console.log(`🪣 Loaded ${bucketMembers?.length || 0} bucket members`);
+        if (typeof window.AppStore !== 'undefined') {
+            window.AppStore.setBundlePromoGroups(bundlePromoGroupsList);
+        }
+        
+        // Load bucket members dengan version checking (jika ada version key untuk ini)
+        // Note: bucket_members mungkin tidak punya version key terpisah, gunakan 'bundle_promo_groups' atau buat key baru
+        const bucketMembersResult = await syncCollectionData('bucket_members', 'bundle_promo_groups', loadBucketMembers);
+        const bucketMembers = bucketMembersResult.data || [];
+        console.log(`🪣 Loaded ${bucketMembers?.length || 0} bucket members ${bucketMembersResult.fromCache ? '(from cache)' : '(from server)'}`);
         
         // Build promo structure: promo_id -> bucket_id -> product_ids
         promoStructureMap.clear();
@@ -1017,7 +1245,7 @@ async function loadProductsData() {
         productBucketMap.clear();
         
         availablePromos.forEach(promo => {
-            const promoGroups = allPromoGroups.filter(pg => pg.promo_id === promo.promo_id);
+            const promoGroups = bundlePromoGroupsList.filter(pg => pg.promo_id === promo.promo_id);
             const bucketsMap = new Map(); // bucket_id -> product_ids[]
             
             promoGroups.forEach(pg => {
@@ -1025,17 +1253,17 @@ async function loadProductsData() {
                 // Get products for this bucket from bucket_members
                 const productsInBucket = bucketMembers
                     .filter(bm => bm.bucket_id === bucketId)
-                    .map(bm => bm.product_id);
+                    .map(bm => bm.product_code);
                 
                 bucketsMap.set(bucketId, productsInBucket);
                 
                 // Store mapping: product -> { promo_id, bucket_id }
-                productsInBucket.forEach(productId => {
-                    productToPromoBucketMap.set(productId, {
+                productsInBucket.forEach(productCode => {
+                    productToPromoBucketMap.set(productCode, {
                         promo_id: promo.promo_id,
                         bucket_id: bucketId
                     });
-                    productBucketMap.set(productId, bucketId);
+                    productBucketMap.set(productCode, bucketId);
                 });
             });
             
@@ -1049,10 +1277,22 @@ async function loadProductsData() {
         console.log(`🗺️ Mapped ${productToPromoBucketMap.size} products to promo/bucket`);
         
         // Load prices menggunakan zona user
-        const prices = await loadPrices(selectedZone);
+        // Load prices dengan version checking (jika belum di-load sebelumnya)
+        let prices;
+        if (typeof window.AppStore !== 'undefined' && window.AppStore.getPrices(selectedZone).length > 0) {
+            prices = window.AppStore.getPrices(selectedZone);
+            console.log(`💰 Using cached prices for zone ${selectedZone}`);
+        } else {
+            const pricesResult = await syncCollectionData(`prices_${selectedZone}`, 'prices', () => loadPrices(selectedZone));
+            prices = pricesResult.data || [];
+            console.log(`💰 Loaded ${prices?.length || 0} prices for zone ${selectedZone} ${pricesResult.fromCache ? '(from cache)' : '(from server)'}`);
+            if (typeof window.AppStore !== 'undefined') {
+                window.AppStore.setPrices(selectedZone, prices);
+            }
+        }
         const priceMap = new Map();
         prices.forEach(price => {
-            priceMap.set(price.product_id, price.base_price);
+            priceMap.set(price.product_code, price.base_price);
         });
         
         // Update productDataMap with prices (for calculation)
@@ -1084,30 +1324,74 @@ async function loadCalculationData(products) {
     try {
         console.log('📊 Loading calculation data...');
         
-        // Load principal discount tiers
-        principalDiscountTiers = await loadPrincipalDiscountTiers();
-        console.log(`💰 Loaded ${principalDiscountTiers?.length || 0} principal discount tiers`);
+        // Load principal discount tiers dengan version checking
+        const principalResult = await syncCollectionData('principal_discount_tiers', 'principal_discount_tiers', loadPrincipalDiscountTiers);
+        principalDiscountTiers = principalResult.data || [];
+        console.log(`💰 Loaded ${principalDiscountTiers?.length || 0} principal discount tiers ${principalResult.fromCache ? '(from cache)' : '(from server)'}`);
         
-        // Load group promos
-        groupPromos = await loadGroupPromos();
-        console.log(`🎁 Loaded ${groupPromos?.length || 0} group promos`);
+        if (typeof window.AppStore !== 'undefined') {
+            window.AppStore.setPrincipalDiscountTiers(principalDiscountTiers);
+        }
         
-        // Load group promo tiers
-        groupPromoTiers = await loadGroupPromoTiers();
-        console.log(`📊 Loaded ${groupPromoTiers?.length || 0} group promo tiers`);
+        // Load group promos dengan version checking
+        const groupPromosResult = await syncCollectionData('group_promos', 'group_promos', loadGroupPromos);
+        groupPromos = groupPromosResult.data || [];
+        console.log(`🎁 Loaded ${groupPromos?.length || 0} group promos ${groupPromosResult.fromCache ? '(from cache)' : '(from server)'}`);
         
-        // Load invoice discounts
-        invoiceDiscounts = await loadInvoiceDiscounts();
-        console.log(`🧾 Loaded ${invoiceDiscounts?.length || 0} invoice discounts`);
+        if (typeof window.AppStore !== 'undefined') {
+            window.AppStore.setGroupPromos(groupPromos);
+        }
         
-        // Load free product promos
-        freeProductPromos = await loadFreeProductPromos();
-        console.log(`🎁 Loaded ${freeProductPromos?.length || 0} free product promos`);
+        // Load group promo tiers dengan version checking
+        const groupTiersResult = await syncCollectionData('group_promo_tiers', 'group_promo_tiers', loadGroupPromoTiers);
+        groupPromoTiers = groupTiersResult.data || [];
+        console.log(`📊 Loaded ${groupPromoTiers?.length || 0} group promo tiers ${groupTiersResult.fromCache ? '(from cache)' : '(from server)'}`);
         
-        // Load loyalty data
-        loyaltyClasses = await loadLoyaltyClasses();
-        loyaltyAvailabilityRules = await loadLoyaltyAvailability();
-        console.log(`🎯 Loaded ${loyaltyClasses?.length || 0} loyalty classes and ${loyaltyAvailabilityRules?.length || 0} availability rules`);
+        if (typeof window.AppStore !== 'undefined') {
+            window.AppStore.setGroupPromoTiers(groupPromoTiers);
+        }
+        
+        // Load invoice discounts dengan version checking
+        const invoiceResult = await syncCollectionData('invoice_discounts', 'invoice_discounts', loadInvoiceDiscounts);
+        invoiceDiscounts = invoiceResult.data || [];
+        console.log(`🧾 Loaded ${invoiceDiscounts?.length || 0} invoice discounts ${invoiceResult.fromCache ? '(from cache)' : '(from server)'}`);
+        
+        if (typeof window.AppStore !== 'undefined') {
+            window.AppStore.setInvoiceDiscounts(invoiceDiscounts);
+        }
+        
+        // Load free product promos dengan version checking
+        const freeProductResult = await syncCollectionData('free_product_promos', 'free_product_promos', loadFreeProductPromos);
+        freeProductPromos = freeProductResult.data || [];
+        console.log(`🎁 Loaded ${freeProductPromos?.length || 0} free product promos ${freeProductResult.fromCache ? '(from cache)' : '(from server)'}`);
+        
+        if (typeof window.AppStore !== 'undefined') {
+            window.AppStore.setFreeProductPromos(freeProductPromos);
+        }
+        
+        // Load free product promo tiers dengan version checking
+        // NOTE: Tiers sementara dinonaktifkan, akan diaktifkan jika diperlukan
+        // const freeProductTiersResult = await syncCollectionData('free_product_promo_tiers', 'free_product_promo_tiers', loadFreeProductPromoTiers);
+        // freeProductPromoTiers = freeProductTiersResult.data || [];
+        // console.log(`🎁 Loaded ${freeProductPromoTiers?.length || 0} free product promo tiers ${freeProductTiersResult.fromCache ? '(from cache)' : '(from server)'}`);
+        freeProductPromoTiers = []; // Set empty untuk sementara
+        
+        // if (typeof window.AppStore !== 'undefined') {
+        //     window.AppStore.setFreeProductPromoTiers(freeProductPromoTiers);
+        // }
+        
+        // Load loyalty data dengan version checking
+        const loyaltyClassesResult = await syncCollectionData('store_loyalty_classes', 'store_loyalty_classes', loadLoyaltyClasses);
+        loyaltyClasses = loyaltyClassesResult.data || [];
+        
+        const loyaltyAvailabilityResult = await syncCollectionData('store_loyalty_availability', 'store_loyalty_availability', loadLoyaltyAvailability);
+        loyaltyAvailabilityRules = loyaltyAvailabilityResult.data || [];
+        console.log(`🎯 Loaded ${loyaltyClasses?.length || 0} loyalty classes and ${loyaltyAvailabilityRules?.length || 0} availability rules ${loyaltyClassesResult.fromCache && loyaltyAvailabilityResult.fromCache ? '(from cache)' : '(from server)'}`);
+        
+        if (typeof window.AppStore !== 'undefined') {
+            window.AppStore.setLoyaltyClasses(loyaltyClasses);
+            window.AppStore.setLoyaltyAvailability(loyaltyAvailabilityRules);
+        }
         
         // Build principal map for products (only if products is provided)
         if (products && Array.isArray(products) && products.length > 0) {
@@ -1164,6 +1448,11 @@ async function loadPromosData() {
         if (freeProductPromos.length === 0) {
             freeProductPromos = await loadFreeProductPromos();
         }
+        // Tiers sementara dinonaktifkan
+        // if (freeProductPromoTiers.length === 0) {
+        //     freeProductPromoTiers = await loadFreeProductPromoTiers();
+        // }
+        freeProductPromoTiers = []; // Set empty untuk sementara
         
         // Filter and group promos by type with tiers
         const availablePromos = {
@@ -1274,15 +1563,25 @@ async function loadPromosData() {
         
         // 4. Invoice Discounts
         invoiceDiscounts.forEach(promo => {
-            // Invoice discounts don't have promo_availability, they apply to all
-            availablePromos.invoice.push({
-                promo_id: promo.promo_id,
-                description: promo.description,
-                min_purchase_amount: promo.min_purchase_amount,
-                payment_method: promo.payment_method,
-                discount_percentage: promo.discount_percentage,
-                type: 'invoice'
-            });
+            // Filter by promo availability (same as other promo types)
+            if (isPromoAvailable(
+                promo.promo_id,
+                'invoice',
+                promoAvailabilityRules,
+                selectedStoreType,
+                userZona,
+                userRegion,
+                userDepo
+            )) {
+                availablePromos.invoice.push({
+                    promo_id: promo.promo_id,
+                    description: promo.description,
+                    min_purchase_amount: promo.min_purchase_amount,
+                    payment_method: promo.payment_method,
+                    discount_percentage: promo.discount_percentage,
+                    type: 'invoice'
+                });
+            }
         });
         
         // 5. Free Product Promos
@@ -1353,10 +1652,19 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
         }).format(roundedAmount);
     };
     
+    // Create accordion structure for each promo type
+    html += '<div class="promo-accordion-container">';
+    
     // 1. Principal Discount Promos with tiers (Format seperti kalkulator)
     if (promos.principal.length > 0) {
-        html += '<div class="promo-section-type">';
-        html += '<h3>💰 Promo Reguler</h3>';
+        const principalCount = promos.principal.reduce((sum, p) => sum + (p.tiers?.length || 0), 0);
+        html += '<div class="accordion-item promo-accordion-item">';
+        html += `<div class="accordion-header promo-accordion-header" onclick="togglePromoAccordion(this)">
+            <span class="accordion-toggle">▼</span>
+            <span class="accordion-title">💰 Promo Reguler</span>
+            <span class="accordion-count">(${principalCount} tier)</span>
+        </div>`;
+        html += '<div class="accordion-content promo-accordion-content" style="display: none;">';
         
         // Build flat list of all tiers with promo availability info
         const allPrincipalTiers = [];
@@ -1456,13 +1764,19 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
             
             html += '</div>';
         });
-        html += '</div></div>';
+        html += '</div>';
+        html += '</div></div>'; // Close accordion-content and accordion-item
     }
     
     // 3. Bundle Promos
     if (promos.bundling.length > 0) {
-        html += '<div class="promo-section-type">';
-        html += '<h3>🎁 Promo Bundling</h3>';
+        html += '<div class="accordion-item promo-accordion-item">';
+        html += `<div class="accordion-header promo-accordion-header" onclick="togglePromoAccordion(this)">
+            <span class="accordion-toggle">▼</span>
+            <span class="accordion-title">🎁 Promo Bundling</span>
+            <span class="accordion-count">(${promos.bundling.length} promo)</span>
+        </div>`;
+        html += '<div class="accordion-content promo-accordion-content" style="display: none;">';
         html += '<div class="promo-list">';
         promos.bundling.forEach(promo => {
             // Get bucket IDs for this promo from bundlePromoGroupsList
@@ -1483,28 +1797,40 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
                 <div class="promo-detail">Diskon per paket: ${formatCurrency(promo.discount_per_package)}${promo.max_packages ? ` | Max paket: ${promo.max_packages}` : ''}</div>
             </div>`;
         });
-        html += '</div></div>';
+        html += '</div>';
+        html += '</div></div>'; // Close accordion-content and accordion-item
     }
     
     // 4. Invoice Discounts
     if (promos.invoice.length > 0) {
-        html += '<div class="promo-section-type">';
-        html += '<h3>🧾 Diskon Invoice</h3>';
+        html += '<div class="accordion-item promo-accordion-item">';
+        html += `<div class="accordion-header promo-accordion-header" onclick="togglePromoAccordion(this)">
+            <span class="accordion-toggle">▼</span>
+            <span class="accordion-title">🧾 Diskon Invoice</span>
+            <span class="accordion-count">(${promos.invoice.length} promo)</span>
+        </div>`;
+        html += '<div class="accordion-content promo-accordion-content" style="display: none;">';
         html += '<div class="promo-list">';
         promos.invoice.forEach(promo => {
             html += `<div class="promo-item">
                 <div class="promo-id"><strong>${promo.promo_id}</strong></div>
                 <div class="promo-description">${promo.description || '-'}</div>
-                <div class="promo-detail">Min. belanja: ${formatCurrency(promo.min_purchase_amount)} | Metode: ${promo.payment_method} | Diskon: ${promo.discount_percentage}%</div>
+                <div class="promo-detail">Min. belanja: ${formatCurrency(promo.min_purchase_amount)} | Metode: ${promo.payment_method} | Diskon: ${(parseFloat(promo.discount_percentage) || 0).toFixed(2)}%</div>
             </div>`;
         });
-        html += '</div></div>';
+        html += '</div>';
+        html += '</div></div>'; // Close accordion-content and accordion-item
     }
     
     // 5. Free Product Promos
     if (promos.free_product.length > 0) {
-        html += '<div class="promo-section-type">';
-        html += '<h3>🎁 Promo Gratis Produk</h3>';
+        html += '<div class="accordion-item promo-accordion-item">';
+        html += `<div class="accordion-header promo-accordion-header" onclick="togglePromoAccordion(this)">
+            <span class="accordion-toggle">▼</span>
+            <span class="accordion-title">🎁 Promo Gratis Produk</span>
+            <span class="accordion-count">(${promos.free_product.length} promo)</span>
+        </div>`;
+        html += '<div class="accordion-content promo-accordion-content" style="display: none;">';
         html += '<div class="promo-list">';
         promos.free_product.forEach(promo => {
             const triggerText = promo.trigger_type === 'nominal' 
@@ -1516,10 +1842,11 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
                 <div class="promo-detail">${triggerText} | Scope: ${promo.purchase_scope} | Gratis: ${promo.free_quantity} pcs</div>
             </div>`;
         });
-        html += '</div></div>';
+        html += '</div>';
+        html += '</div></div>'; // Close accordion-content and accordion-item
     }
     
-    // 6. Loyalty Rules (hanya untuk Grosir)
+    // 6. Loyalty Rules (hanya untuk Grosir) - tidak perlu accordion, langsung tampil
     const storeTypeEl = document.getElementById('store-type');
     const selectedStoreType = storeTypeEl ? storeTypeEl.value : 'grosir';
     
@@ -1591,6 +1918,35 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
     
     container.innerHTML = html;
 }
+
+/**
+ * Toggle accordion untuk promo section
+ * Fungsi ini harus global karena dipanggil dari onclick attribute
+ */
+window.togglePromoAccordion = function(header) {
+    const content = header.nextElementSibling;
+    const toggle = header.querySelector('.accordion-toggle');
+    
+    if (!content || !toggle) {
+        console.warn('⚠️ togglePromoAccordion: content or toggle not found');
+        return;
+    }
+    
+    // Check current state: if display is 'none' or empty (default collapsed), expand it
+    const isCurrentlyHidden = content.style.display === 'none' || 
+                              content.style.display === '' ||
+                              window.getComputedStyle(content).display === 'none';
+    
+    if (isCurrentlyHidden) {
+        content.style.display = 'block';
+        toggle.textContent = '▲';
+        header.classList.add('expanded');
+    } else {
+        content.style.display = 'none';
+        toggle.textContent = '▼';
+        header.classList.remove('expanded');
+    }
+};
 
 /**
  * Get upselling recommendation for group promo (strata)
@@ -2489,7 +2845,7 @@ function calculateTotalPerPrincipal(cart, productDataMap, principalMap, userZona
         if (!product) return;
         
         // Get principal code for this product
-        const principalCode = principalMap.get(productId) || product.principal_id || '';
+        const principalCode = principalMap.get(productId) || product.principal_code || '';
         if (!principalCode) return;
         
         // Get base price (already include PPN)
@@ -2536,15 +2892,17 @@ function getPrincipalUpsellingRecommendation(
         return null;
     }
     
-    // 1. Hitung total belanja untuk principal ini
+    // 1. Hitung total belanja per principal
     const totalPerPrincipal = calculateTotalPerPrincipal(cart, productDataMap, principalMap, userZona);
-    const currentTotal = totalPerPrincipal.get(principalCode.toUpperCase().trim()) || 0;
+    const normalizedPrincipalCode = principalCode.toUpperCase().trim();
+    const currentTotal = totalPerPrincipal.get(normalizedPrincipalCode) || 0;
     
     if (currentTotal <= 0) {
         return null; // Tidak ada belanja untuk principal ini
     }
     
-    // 2. Filter tiers yang available untuk principal ini
+    // 2. Filter tiers yang available dan relevan untuk principal ini
+    // NOTE: Jika tier memiliki multiple principals, hitung total gabungan
     const availableTiers = principalDiscountTiers.filter(tier => {
         // Check availability
         const available = isPromoAvailable(
@@ -2558,15 +2916,21 @@ function getPrincipalUpsellingRecommendation(
         );
         if (!available) return false;
         
-        // Check if principal code matches
+        // Parse principal_codes
         let principalCodes = [];
         if (Array.isArray(tier.principal_codes)) {
             principalCodes = tier.principal_codes;
         } else if (typeof tier.principal_codes === 'string') {
             principalCodes = tier.principal_codes.split(',').map(s => s.trim());
         }
-        principalCodes = principalCodes.map(c => String(c).toUpperCase().trim());
-        return principalCodes.includes(principalCode.toUpperCase().trim());
+        principalCodes = principalCodes.map(c => String(c).toUpperCase().trim()).filter(Boolean);
+        
+        // Check if principal code is in the array
+        if (!principalCodes.includes(normalizedPrincipalCode)) {
+            return false;
+        }
+        
+        return true;
     });
     
     if (availableTiers.length === 0) {
@@ -2581,12 +2945,33 @@ function getPrincipalUpsellingRecommendation(
     });
     
     // 4. Cari tier berikutnya yang lebih tinggi
+    // NOTE: Untuk multiple principals, hitung total gabungan
     let currentTier = null;
     let nextTier = null;
     
     for (const tier of sortedTiers) {
+        // Parse principal_codes
+        let tierPrincipalCodes = [];
+        if (Array.isArray(tier.principal_codes)) {
+            tierPrincipalCodes = tier.principal_codes;
+        } else if (typeof tier.principal_codes === 'string') {
+            tierPrincipalCodes = tier.principal_codes.split(',').map(s => s.trim());
+        }
+        tierPrincipalCodes = tierPrincipalCodes.map(c => String(c).toUpperCase().trim()).filter(Boolean);
+        
         const minPurchase = parseFloat(tier.min_purchase_amount) || 0;
-        if (currentTotal >= minPurchase) {
+        
+        // Jika tier memiliki multiple principals, hitung total gabungan
+        let totalToCheck = currentTotal;
+        if (tierPrincipalCodes.length > 1) {
+            // Hitung total gabungan dari semua principals di array
+            totalToCheck = 0;
+            tierPrincipalCodes.forEach(pc => {
+                totalToCheck += totalPerPrincipal.get(pc) || 0;
+            });
+        }
+        
+        if (totalToCheck >= minPurchase) {
             currentTier = tier;
         } else {
             nextTier = tier;
@@ -2600,14 +2985,34 @@ function getPrincipalUpsellingRecommendation(
     }
     
     // 6. Hitung gap
+    // Untuk nextTier, jika multiple principals, hitung total gabungan yang diperlukan
+    let nextTierPrincipalCodes = [];
+    if (Array.isArray(nextTier.principal_codes)) {
+        nextTierPrincipalCodes = nextTier.principal_codes;
+    } else if (typeof nextTier.principal_codes === 'string') {
+        nextTierPrincipalCodes = nextTier.principal_codes.split(',').map(s => s.trim());
+    }
+    nextTierPrincipalCodes = nextTierPrincipalCodes.map(c => String(c).toUpperCase().trim()).filter(Boolean);
+    
     const nextMinPurchase = parseFloat(nextTier.min_purchase_amount) || 0;
-    const gap = nextMinPurchase - currentTotal;
+    
+    // Hitung total gabungan saat ini untuk nextTier
+    let currentCombinedTotal = currentTotal;
+    if (nextTierPrincipalCodes.length > 1) {
+        currentCombinedTotal = 0;
+        nextTierPrincipalCodes.forEach(pc => {
+            currentCombinedTotal += totalPerPrincipal.get(pc) || 0;
+        });
+    }
+    
+    const gap = nextMinPurchase - currentCombinedTotal;
     
     if (gap <= 0) {
         return null;
     }
     
     // 7. Hitung potensi diskon
+    // discount_percentage sudah dalam format persentase (1 = 1%, 5 = 5%)
     const currentDiscount = parseFloat(currentTier?.discount_percentage) || 0;
     const nextDiscount = parseFloat(nextTier.discount_percentage) || 0;
     const discountIncrease = nextDiscount - currentDiscount;
@@ -2622,15 +3027,32 @@ function getPrincipalUpsellingRecommendation(
         }).format(roundedAmount);
     };
     
+    // Format message berdasarkan apakah nextTier memiliki multiple principals
+    let message = '';
+    if (nextTierPrincipalCodes.length > 1) {
+        // Multiple principals: sebutkan semua principals yang perlu ditambah
+        const otherPrincipals = nextTierPrincipalCodes.filter(pc => pc !== normalizedPrincipalCode);
+        if (otherPrincipals.length > 0) {
+            message = `Tambah belanja ${formatCurrency(gap)} untuk principal ${normalizedPrincipalCode} (atau gabungan dengan ${otherPrincipals.join(', ')}) untuk mendapat diskon ${nextDiscount}% (saat ini ${currentDiscount}%)`;
+        } else {
+            message = `Tambah belanja ${formatCurrency(gap)} untuk principal ${normalizedPrincipalCode} untuk mendapat diskon ${nextDiscount}% (saat ini ${currentDiscount}%)`;
+        }
+    } else {
+        // Single principal
+        message = `Tambah belanja ${formatCurrency(gap)} untuk principal ${normalizedPrincipalCode} untuk mendapat diskon ${nextDiscount}% (saat ini ${currentDiscount}%)`;
+    }
+    
     return {
-        principalCode,
-        currentTotal,
+        principalCode: normalizedPrincipalCode,
+        currentTotal: currentCombinedTotal,
         currentDiscount,
         nextMinPurchase,
         nextDiscount,
         gap,
         discountIncrease,
-        message: `Tambahkan belanja principal ${principalCode} sebesar ${formatCurrency(gap)} untuk mendapat diskon ${nextDiscount}% (saat ini ${currentDiscount}%)`
+        message,
+        isMultiplePrincipals: nextTierPrincipalCodes.length > 1,
+        relatedPrincipals: nextTierPrincipalCodes
     };
 }
 
@@ -2753,7 +3175,7 @@ function updateCalculationUpsellingRecommendations() {
     // 1. Principal Discount Upselling (tidak collapse, tampil langsung)
     const principalDiscountRow = document.getElementById('principal-discount');
     if (principalDiscountRow) {
-        const principalRecommendations = [];
+        let principalRecommendations = [];
         
         // Get unique principals from cart
         const principalsInCart = new Set();
@@ -2761,13 +3183,16 @@ function updateCalculationUpsellingRecommendations() {
             const product = productDataMap.get(productId);
             if (!product) return;
             
-            const principalCode = principalMap.get(productId) || product.principal_id || '';
+            const principalCode = principalMap.get(productId) || product.principal_code || '';
             if (principalCode) {
                 principalsInCart.add(principalCode.toUpperCase().trim());
             }
         });
         
         // Check upselling for each principal
+        // Gunakan Map untuk menghindari duplikasi rekomendasi untuk tier dengan multiple principals
+        const recommendationMap = new Map(); // key: string dari sorted relatedPrincipals, value: recommendation
+        
         principalsInCart.forEach(principalCode => {
             const recommendation = getPrincipalUpsellingRecommendation(
                 principalCode,
@@ -2784,9 +3209,25 @@ function updateCalculationUpsellingRecommendations() {
             );
             
             if (recommendation) {
-                principalRecommendations.push(recommendation);
+                // Jika tier memiliki multiple principals, gunakan relatedPrincipals sebagai key
+                // Jika single principal, gunakan principalCode sebagai key
+                let key;
+                if (recommendation.isMultiplePrincipals && recommendation.relatedPrincipals) {
+                    // Sort relatedPrincipals untuk konsistensi key
+                    key = recommendation.relatedPrincipals.sort().join(',');
+                } else {
+                    key = recommendation.principalCode;
+                }
+                
+                // Hanya simpan jika belum ada, atau jika gap lebih kecil (lebih prioritas)
+                if (!recommendationMap.has(key) || recommendation.gap < recommendationMap.get(key).gap) {
+                    recommendationMap.set(key, recommendation);
+                }
             }
         });
+        
+        // Convert Map values to array
+        principalRecommendations = Array.from(recommendationMap.values());
         
         if (principalRecommendations.length > 0) {
             // Tampilkan langsung tanpa header (hanya informasi)
@@ -2801,6 +3242,16 @@ function updateCalculationUpsellingRecommendations() {
     
     // 2. Strata (Group Promo) Upselling (collapse di dalam row Promo Grup Produk)
     const groupDiscountRow = document.getElementById('group-discount');
+    if (!groupDiscountRow) {
+        console.warn('⚠️ group-discount element not found! Cannot display strata upselling.');
+        console.log('Available calculation elements:', {
+            basePrice: !!document.getElementById('total-base-price'),
+            principalDiscount: !!document.getElementById('principal-discount'),
+            groupDiscount: !!document.getElementById('group-discount'),
+            bundleDiscount: !!document.getElementById('bundle-discount'),
+            invoiceDiscount: !!document.getElementById('invoice-discount')
+        });
+    }
     if (groupDiscountRow) {
         const groupDiscountRowElement = groupDiscountRow.closest('.calc-row');
         
@@ -2818,12 +3269,24 @@ function updateCalculationUpsellingRecommendations() {
         
         // Get all groups with upselling recommendations
         const productContainer = document.getElementById('product-groups');
-        if (productContainer) {
+        if (!productContainer) {
+            console.warn('⚠️ product-groups container not found! Cannot get group codes for strata upselling.');
+        } else {
             const accordionItems = productContainer.querySelectorAll('.accordion-item[data-group-code]');
-            accordionItems.forEach(accordionItem => {
+            console.log(`🔍 [Strata Upselling] Found ${accordionItems.length} accordion items with data-group-code`);
+            
+            if (accordionItems.length === 0) {
+                console.warn('⚠️ No accordion items with data-group-code found!');
+            }
+            
+            accordionItems.forEach((accordionItem, idx) => {
                 const groupCode = accordionItem.dataset.groupCode;
-                if (!groupCode) return;
+                if (!groupCode) {
+                    console.warn(`⚠️ Accordion item ${idx} has no data-group-code attribute`);
+                    return;
+                }
                 
+                console.log(`🔍 [Strata Upselling] Checking group: ${groupCode}`);
                 const recommendation = getStrataUpsellingRecommendation(
                     groupCode,
                     cart,
@@ -2843,6 +3306,7 @@ function updateCalculationUpsellingRecommendations() {
                 );
                 
                 if (recommendation) {
+                    console.log(`✅ [Strata Upselling] Found recommendation for group ${groupCode}:`, recommendation);
                     // Format message yang informatif (sama seperti di product list)
                     const unitLabel = recommendation.tierUnit === 'unit_1' ? 'krt' : 'box';
                     const currentDiscount = Math.round(recommendation.currentDiscountPerUnit || 0);
@@ -2861,10 +3325,13 @@ function updateCalculationUpsellingRecommendations() {
                     }
                     
                     strataRecommendations.push({ message });
+                } else {
+                    console.log(`❌ [Strata Upselling] No recommendation for group ${groupCode}`);
                 }
             });
         }
         
+        console.log(`📊 [Strata Upselling] Total recommendations: ${strataRecommendations.length}`);
         if (strataRecommendations.length > 0) {
             // Add collapse toggle di kiri row Promo Grup Produk
             const toggle = document.createElement('span');
@@ -3148,11 +3615,13 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
         productGroupsCount: productGroups.length,
         groupMapSize: groupMap.size,
         promoStructureMapSize: promoStructureMap.size,
-        groups: productGroups.map(g => ({ id: g.id, code: g.code, name: g.name })),
+        groups: productGroups.map(g => ({ code: g.code, name: g.name })),
         groupMapDetails: Array.from(groupMap.entries()).map(([code, products]) => ({
             code,
-            productCount: products.length
-        }))
+            productCount: products.length,
+            products: products.map(p => p.product?.code || 'N/A').slice(0, 3) // First 3 product codes
+        })),
+        totalProductsInMap: Array.from(groupMap.values()).reduce((sum, arr) => sum + arr.length, 0)
     });
     
     let html = '';
@@ -3591,6 +4060,64 @@ let cart = new Map();
 // Product data map for cart display (product code -> product data)
 let productDataMap = new Map();
 
+// Cart persistence keys
+const CART_STORAGE_KEY = 'price_engine_cart_v1';
+
+/**
+ * Save cart to localStorage
+ */
+function saveCartToLocalStorage() {
+    try {
+        const cartArray = Array.from(cart.entries());
+        if (cartArray.length > 0) {
+            localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cartArray));
+            console.log(`💾 Saved ${cartArray.length} items to cart cache`);
+        } else {
+            localStorage.removeItem(CART_STORAGE_KEY);
+        }
+        
+        // Also update AppStore if available
+        if (typeof window.AppStore !== 'undefined') {
+            cartArray.forEach(([productId, item]) => {
+                window.AppStore.updateCart(productId, item);
+            });
+        }
+    } catch (error) {
+        console.error('Error saving cart to localStorage:', error);
+    }
+}
+
+/**
+ * Load cart from localStorage
+ */
+function loadCartFromLocalStorage() {
+    try {
+        const storedCart = localStorage.getItem(CART_STORAGE_KEY);
+        if (storedCart) {
+            const cartArray = JSON.parse(storedCart);
+            cart.clear();
+            cartArray.forEach(([productId, item]) => {
+                cart.set(productId, item);
+            });
+            console.log(`✅ Loaded ${cart.size} items from cart cache`);
+            
+            // Also update AppStore if available
+            if (typeof window.AppStore !== 'undefined') {
+                cartArray.forEach(([productId, item]) => {
+                    window.AppStore.updateCart(productId, item);
+                });
+            }
+            
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error('Error loading cart from localStorage:', error);
+        localStorage.removeItem(CART_STORAGE_KEY);
+        return false;
+    }
+}
+
 // Product group map (product code -> group code) for cart grouping
 let productGroupMap = new Map(); // product_code -> { code, name }
 
@@ -3611,6 +4138,7 @@ let groupPromos = [];
 let groupPromoTiers = [];
 let invoiceDiscounts = [];
 let freeProductPromos = [];
+let freeProductPromoTiers = []; // Store free product promo tiers
 let promoAvailabilityRules = [];
 let productGroupAvailabilityRules = []; // Store product group availability rules
 let bundlePromosList = []; // Store bundle promos for calculation
@@ -3940,6 +4468,9 @@ function updateCartFromInput(inputEl) {
         cart.delete(productId);
     }
     
+    // Save cart to localStorage
+    saveCartToLocalStorage();
+    
     // Sync product list inputs (mirror dari kalkulator)
     syncProductListInputs(productId, qtyKrt, qtyBox);
     
@@ -3956,6 +4487,9 @@ function handleRemoveItem(btnEl) {
     if (!productId) return;
     
     cart.delete(productId);
+    
+    // Save cart to localStorage
+    saveCartToLocalStorage();
     
     // Sync product list inputs (mirror dari kalkulator)
     syncProductListInputs(productId, 0, 0);
@@ -3991,11 +4525,11 @@ function batchUpdateUI() {
         });
     }
     
-    // TODO: Update product card summaries (harga promo, dll) jika diperlukan
+    // Update product card summaries (harga promo, dll) jika diperlukan
     // updateAllProductCardSummaries(summary);
     
-    // TODO: Save cart to localStorage jika diperlukan
-    // saveCartToLocalStorage();
+    // Save cart to localStorage
+    saveCartToLocalStorage();
 }
 
 // Render keranjang dengan grouping per group (mirror dari kalkulator renderKeranjang)
@@ -4011,7 +4545,29 @@ function renderKeranjang() {
         if (summaryBarTotal) {
             summaryBarTotal.textContent = 'Rp 0';
         }
+        
+        // Hide calculation section when cart is empty
+        const calculationSection = document.querySelector('.calculation-section');
+        if (calculationSection) {
+            calculationSection.style.display = 'none';
+        }
+        
         return;
+    }
+    
+    // Check if all items have qty = 0, then hide calculation section
+    let hasItemsWithQty = false;
+    cart.forEach((item, productId) => {
+        const qtyKrt = item.quantities?.krt || item.quantities?.unit_1 || 0;
+        const qtyBox = item.quantities?.box || item.quantities?.unit_2 || 0;
+        if (qtyKrt > 0 || qtyBox > 0) {
+            hasItemsWithQty = true;
+        }
+    });
+    
+    const calculationSection = document.querySelector('.calculation-section');
+    if (calculationSection) {
+        calculationSection.style.display = hasItemsWithQty ? 'block' : 'none';
     }
     
     // Group cart items by eceran saja (netral dari paket dan group)
@@ -4135,6 +4691,7 @@ function renderCartItem(productId, item) {
             // Use pre-calculated values from calculateItemDetails
             const itemGroupPromoDiscount = calcItem.itemGroupPromoDiscount || 0;
             const itemBundlePromoDiscount = calcItem.itemBundlePromoDiscount || 0;
+            const itemFreeProductDiscount = calcItem.itemFreeProductDiscount || 0;
             const itemInvoiceDiscount = calcItem.itemInvoiceDiscount || 0;
             const finalNett = calcItem.finalNett || 0;
             
@@ -4151,6 +4708,9 @@ function renderCartItem(productId, item) {
             }
             if (itemBundlePromoDiscount > 0) {
                 promoDetails.push(`Bundle: ${formatCurrency(itemBundlePromoDiscount)}`);
+            }
+            if (itemFreeProductDiscount > 0) {
+                promoDetails.push(`Free Product: ${formatCurrency(itemFreeProductDiscount)}`);
             }
             if (itemInvoiceDiscount > 0) {
                 promoDetails.push(`Invoice: ${formatCurrency(itemInvoiceDiscount)}`);
@@ -4232,7 +4792,7 @@ async function handleCalculate() {
             const prices = await loadPrices(selectedZone);
             const priceMap = new Map();
             prices.forEach(price => {
-                priceMap.set(price.product_id, price.base_price);
+                priceMap.set(price.product_code, price.base_price);
             });
             
             // Update productDataMap with prices
@@ -4259,6 +4819,7 @@ async function handleCalculate() {
             bundlePromoGroups: bundlePromoGroupsList,
             invoiceDiscounts,
             freeProductPromos,
+            freeProductPromoTiers,
             promoAvailabilityRules,
             productGroupAvailabilityRules,
             isProductGroupAvailable,
@@ -4279,6 +4840,7 @@ async function handleCalculate() {
             principalDiscount: result.principalDiscount,
             groupPromoDiscount: result.groupPromoDiscount,
             bundlePromoDiscount: result.bundlePromoDiscount,
+            freeProductDiscount: result.freeProductDiscount,
             invoiceDiscount: result.invoiceDiscount
         });
         updateCalculationDisplay(result);
@@ -4376,6 +4938,23 @@ async function handleCalculate() {
  * Update calculation display in UI
  */
 function updateCalculationDisplay(result) {
+    // Show/hide calculation section based on whether there are items with qty > 0
+    const calculationSection = document.querySelector('.calculation-section');
+    if (calculationSection) {
+        let hasItemsWithQty = false;
+        if (cart && cart.size > 0) {
+            // Check if any item has qty > 0
+            cart.forEach((item, productId) => {
+                const qtyKrt = item.quantities?.krt || item.quantities?.unit_1 || 0;
+                const qtyBox = item.quantities?.box || item.quantities?.unit_2 || 0;
+                if (qtyKrt > 0 || qtyBox > 0) {
+                    hasItemsWithQty = true;
+                }
+            });
+        }
+        calculationSection.style.display = hasItemsWithQty ? 'block' : 'none';
+    }
+    
     // Format currency
     const formatCurrency = (amount) => {
         // Bulatkan ke bilangan bulat sebelum format
@@ -4419,7 +4998,11 @@ function updateCalculationDisplay(result) {
     // Update free product discount
     const freeProductDiscountEl = document.getElementById('free-product-discount');
     if (freeProductDiscountEl) {
-        freeProductDiscountEl.textContent = `- ${formatCurrency(result.freeProductPromo || result.freeProductDiscount || 0)}`;
+        const discountValue = result.freeProductDiscount || 0;
+        freeProductDiscountEl.textContent = `- ${formatCurrency(discountValue)}`;
+        console.log(`💰 UI Update - Free Product Discount: Rp ${discountValue.toLocaleString('id-ID')}`);
+    } else {
+        console.warn('⚠️ Element #free-product-discount not found!');
     }
     
     // Update invoice discount
@@ -4503,6 +5086,20 @@ function resetSimulation() {
     // Clear cart
     cart.clear();
     
+    // Save cart to localStorage
+    saveCartToLocalStorage();
+    
+    // Reset all quantity inputs in product list
+    const productContainer = document.getElementById('product-groups');
+    if (productContainer) {
+        const qtyInputs = productContainer.querySelectorAll('.qty-input');
+        qtyInputs.forEach(input => {
+            const isKrt = input.classList.contains('input-krt');
+            input.value = isKrt ? 'K' : 'B';
+            input.classList.add('is-placeholder');
+        });
+    }
+    
     // Reset voucher input
     const voucherInput = document.getElementById('voucher-input');
     if (voucherInput) {
@@ -4518,7 +5115,7 @@ function resetSimulation() {
     // Re-render cart
     renderKeranjang();
     
-    // Reset calculation display
+    // Reset calculation display (autohide will be handled by updateCalculationDisplay based on qty)
     updateCalculationDisplay({
         totalBasePrice: 0,
         principalDiscount: 0,
@@ -4838,9 +5435,9 @@ function calculateItemDetails(result) {
     // Calculate total subtotal after principal discount for proportion calculations
     const totalSubtotalAfterPrincipal = result.items.reduce((sum, it) => sum + it.subtotalAfterDiscount, 0);
 
-    // Calculate total after all discounts (excluding invoice) for invoice proportion
+    // Calculate total after all discounts (excluding invoice and free product) for invoice proportion
     // Pastikan tidak negatif - jika semua promo tidak berlaku, ini = basePrice - principalDiscount
-    const totalAfterOtherDiscountsGlobal = Math.max(0, result.basePrice - (result.principalDiscount || 0) - (result.groupPromoDiscount || 0) - (result.bundlePromoDiscount || 0));
+    const totalAfterOtherDiscountsGlobal = Math.max(0, result.basePrice - (result.principalDiscount || 0) - (result.groupPromoDiscount || 0) - (result.bundlePromoDiscount || 0) - (result.freeProductDiscount || 0));
 
     // Calculate total qty for group promo proportion (per group)
     // Group promo discount harus dibagi berdasarkan qty, bukan subtotal
@@ -4910,8 +5507,10 @@ function calculateItemDetails(result) {
             }
         }
 
-        // 2. Bundle Promo Discount for this item (proportional per promo)
+        // 2. Bundle Promo Discount for this item (proportional per promo berdasarkan QTY)
         // Item bisa masuk ke multiple bundle promos, jadi kita perlu hitung proporsi per promo
+        // Proporsi berdasarkan QTY (bukan harga), sehingga jika bucket 1 = 1 krt dan bucket 2 = 1 krt,
+        // potongan 3000 dibagi rata menjadi masing-masing 1500
         item.itemBundlePromoDiscount = 0;
         item.bundlePromoDiscountByPromo = {}; // Track discount per promo untuk breakdown di modal
         
@@ -4933,9 +5532,11 @@ function calculateItemDetails(result) {
                 
                 if (!isInPromo) return;
                 
-                // Calculate proportion for this promo
-                // Get all items that are in this promo
-                let totalSubtotalInThisPromo = 0;
+                // Calculate proportion for this promo based on QTY (not subtotal)
+                // Get all items that are in this promo and calculate total qty
+                let totalQtyInThisPromo = 0;
+                const itemQtyInPromo = new Map(); // productId -> qtyKrtTotal
+                
                 result.items.forEach(it => {
                     // Check if it.productId is in this promo
                     let itIsInPromo = false;
@@ -4946,24 +5547,84 @@ function calculateItemDetails(result) {
                     });
                     
                     if (itIsInPromo) {
-                        totalSubtotalInThisPromo += it.subtotalAfterDiscount;
+                        const itQtyInfo = itemQtyMap.get(it.productId);
+                        if (itQtyInfo) {
+                            const itQtyKrtTotal = itQtyInfo.qtyKrtTotal || 0;
+                            totalQtyInThisPromo += itQtyKrtTotal;
+                            itemQtyInPromo.set(it.productId, itQtyKrtTotal);
+                        }
                     }
                 });
                 
-                // Calculate proportion and discount for this promo
-                if (totalSubtotalInThisPromo > 0 && item.subtotalAfterDiscount > 0) {
-                    const proportion = item.subtotalAfterDiscount / totalSubtotalInThisPromo;
-                    const itemDiscountForThisPromo = promoDiscount * proportion;
+                // Calculate proportion and discount for this promo based on QTY
+                const currentItemQty = qtyKrtTotal || 0;
+                if (totalQtyInThisPromo > 0 && currentItemQty > 0) {
+                    const qtyProportion = currentItemQty / totalQtyInThisPromo;
+                    const itemDiscountForThisPromo = promoDiscount * qtyProportion;
                     item.itemBundlePromoDiscount += itemDiscountForThisPromo;
                     item.bundlePromoDiscountByPromo[promoId] = itemDiscountForThisPromo;
                 }
             });
         }
 
-        // Subtotal after Principal, Group, and Bundle discounts
-        // Jika promo tidak berlaku, itemGroupPromoDiscount dan itemBundlePromoDiscount akan 0
+        // 2.5. Free Product Discount for this item (based on quantity in eligible groups)
+        // Gunakan discount per group yang sudah dihitung di calculation.js (yang sudah mempertimbangkan promo availability)
+        item.itemFreeProductDiscount = 0;
+        if (result.freeProductDiscountByGroup && result.freeProductDiscountByGroup.size > 0) {
+            // Get group code for this product
+            const groupInfo = productGroupMap.get(productId);
+            const groupCode = groupInfo?.code || null;
+            
+            if (groupCode && result.freeProductDiscountByGroup.has(groupCode)) {
+                // Get total discount for this group (sudah mempertimbangkan promo availability)
+                const totalDiscountForThisGroup = result.freeProductDiscountByGroup.get(groupCode);
+                
+                if (totalDiscountForThisGroup > 0) {
+                    // Calculate total qty in this group for all products
+                    let totalQtyInGroup = 0;
+                    result.items.forEach(otherItem => {
+                        const otherProductId = otherItem.productId;
+                        const otherGroupInfo = productGroupMap.get(otherProductId);
+                        if (otherGroupInfo && otherGroupInfo.code === groupCode) {
+                            const otherCartItem = cart.get(otherProductId);
+                            if (otherCartItem) {
+                                const otherQtyKrt = otherCartItem.quantities?.krt || otherCartItem.quantities?.unit_1 || 0;
+                                const otherQtyBox = otherCartItem.quantities?.box || otherCartItem.quantities?.unit_2 || 0;
+                                const otherProduct = productDataMap.get(otherProductId);
+                                const otherRatio = otherProduct?.ratio_unit_2_per_unit_1 || 1;
+                                totalQtyInGroup += (otherQtyKrt * otherRatio) + otherQtyBox;
+                            }
+                        }
+                    });
+                    
+                    // Calculate this item's qty in box
+                    const qtyKrt = cartItem.quantities?.krt || cartItem.quantities?.unit_1 || 0;
+                    const qtyBox = cartItem.quantities?.box || cartItem.quantities?.unit_2 || 0;
+                    const ratio = product.ratio_unit_2_per_unit_1 || 1;
+                    const itemQtyInBox = (qtyKrt * ratio) + qtyBox;
+                    
+                    // Distribute discount based on quantity proportion
+                    if (totalQtyInGroup > 0 && itemQtyInBox > 0) {
+                        const qtyProportion = itemQtyInBox / totalQtyInGroup;
+                        item.itemFreeProductDiscount = totalDiscountForThisGroup * qtyProportion;
+                        
+                        // Debug logging
+                        if (window.DEBUG_FREE_PRODUCT) {
+                            console.log(`%c🔍 ITEM DISCOUNT CALCULATION for ${productId} (${groupCode})`, 'background: #ffd43b; color: #000; font-weight: bold; padding: 2px 6px;');
+                            console.log(`  Total discount for group ${groupCode}: Rp ${totalDiscountForThisGroup.toLocaleString('id-ID')}`);
+                            console.log(`  Item qty: ${itemQtyInBox} box, Total group qty: ${totalQtyInGroup} box`);
+                            console.log(`  Proportion: ${(qtyProportion * 100).toFixed(2)}%`);
+                            console.log(`  Item discount: Rp ${item.itemFreeProductDiscount.toLocaleString('id-ID')}`);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Subtotal after Principal, Group, Bundle, and Free Product discounts
+        // Jika promo tidak berlaku, semua discount akan 0
         // sehingga subtotalAfterAllDiscounts = subtotalAfterDiscount (base price setelah principal)
-        const subtotalAfterAllDiscounts = item.subtotalAfterDiscount - (item.itemGroupPromoDiscount || 0) - (item.itemBundlePromoDiscount || 0);
+        const subtotalAfterAllDiscounts = item.subtotalAfterDiscount - (item.itemGroupPromoDiscount || 0) - (item.itemBundlePromoDiscount || 0) - (item.itemFreeProductDiscount || 0);
 
         // 3. Invoice Discount for this item (proportional)
         // HANYA diterapkan jika ada invoice discount dan item memiliki subtotal > 0
@@ -4978,7 +5639,7 @@ function calculateItemDetails(result) {
         }
 
         // Final Nett for this item
-        // Logika: basePrice (subtotal) - principalDiscount - strataDiscount - bundleDiscount - invoiceDiscount
+        // Logika: basePrice (subtotal) - principalDiscount - strataDiscount - bundleDiscount - freeProductDiscount - invoiceDiscount
         // Jika semua diskon = 0, maka finalNett = subtotal (basePrice)
         item.finalNett = subtotalAfterAllDiscounts - (item.itemInvoiceDiscount || 0);
         
@@ -5152,6 +5813,7 @@ function showDetailHargaModal(productId) {
     let discPrincipalPerKrt = 0;
     let discGroupPromoPerKrt = 0;
     let discBundlePromoPerKrt = 0;
+    let discFreeProductPerKrt = 0;
     let discInvoicePerKrt = 0;
     let hargaNettPerKrt = 0;
     let calcItem = null;
@@ -5162,6 +5824,7 @@ function showDetailHargaModal(productId) {
             // Use pre-calculated values untuk konsistensi dengan cart
             const itemGroupPromoDiscount = calcItem.itemGroupPromoDiscount || 0;
             const itemBundlePromoDiscount = calcItem.itemBundlePromoDiscount || 0;
+            const itemFreeProductDiscount = calcItem.itemFreeProductDiscount || 0;
             const itemInvoiceDiscount = calcItem.itemInvoiceDiscount || 0;
             const finalNett = calcItem.finalNett || 0;
             
@@ -5171,6 +5834,7 @@ function showDetailHargaModal(productId) {
             discPrincipalPerKrt = qtyKrtTotal > 0 ? (principalDiscountAmount / qtyKrtTotal) : 0;
             discGroupPromoPerKrt = qtyKrtTotal > 0 ? (itemGroupPromoDiscount / qtyKrtTotal) : 0;
             discBundlePromoPerKrt = qtyKrtTotal > 0 ? (itemBundlePromoDiscount / qtyKrtTotal) : 0;
+            discFreeProductPerKrt = qtyKrtTotal > 0 ? (itemFreeProductDiscount / qtyKrtTotal) : 0;
             discInvoicePerKrt = qtyKrtTotal > 0 ? (itemInvoiceDiscount / qtyKrtTotal) : 0;
             hargaNettPerKrt = qtyKrtTotal > 0 ? (finalNett / qtyKrtTotal) : 0;
         } else {
@@ -5254,6 +5918,12 @@ function showDetailHargaModal(productId) {
                         return html;
                     }
                 })()}
+                ${discFreeProductPerKrt > 0 ? `
+                <tr>
+                    <td class="label">Potongan Free Product</td>
+                    <td class="value value-danger">- ${formatCurrency(discFreeProductPerKrt)}</td>
+                </tr>
+                ` : ''}
                 <tr>
                     <td class="label">Potongan Invoice</td>
                     <td class="value value-danger">- ${formatCurrency(discInvoicePerKrt)}</td>

@@ -1,16 +1,15 @@
-// Service Worker for Offline Functionality
-const CACHE_NAME = 'price-engine-v3';
+// Service Worker for Offline Functionality (Network-First Strategy)
+const CACHE_NAME = 'price-engine-v5';
 const urlsToCache = [
     '/',
     '/index.html',
     '/style.css',
     '/app.js',
-    '/db.js',
     '/auth.js',
     '/database.js',
+    '/calculation.js',
     '/env.js',
     '/manifest.json',
-    'https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.mjs',
     'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
 ];
 

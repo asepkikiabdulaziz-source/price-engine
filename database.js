@@ -26,7 +26,7 @@ export async function loadProducts() {
         const supabase = getSupabaseClient();
         const { data, error } = await supabase
             .from('master_products')
-            .select('code, name, principal_id, category, unit_1, unit_2, unit_3, ratio_unit_2_per_unit_1, ratio_unit_3_per_unit_2, eceran')
+            .select('code, name, principal_code, category, eceran, unit_1, unit_2, unit_3, ratio_unit_2_per_unit_1, ratio_unit_3_per_unit_2')
             .order('name');
         
         if (error) throw error;
@@ -48,8 +48,8 @@ export async function loadPrices(zoneCode) {
         // Query langsung menggunakan zone_code (zone_id di prices = zone_code TEXT)
         const { data, error } = await supabase
             .from('prices')
-            .select('product_id, base_price')
-            .eq('zone_id', zoneCode); // zone_id di prices = zone_code (TEXT)
+            .select('product_code, base_price')
+            .eq('zone_code', zoneCode); // zone_code di prices (TEXT)
         
         if (error) throw error;
         return data || [];
@@ -67,7 +67,7 @@ export async function loadProductGroups() {
         const supabase = getSupabaseClient();
         const { data, error } = await supabase
             .from('product_groups')
-            .select('id, code, name, priority')
+            .select('code, name, priority')
             .order('priority', { ascending: false });
         
         if (error) throw error;
@@ -87,26 +87,61 @@ export async function loadProductGroupMembers() {
         // Load members
         const { data: members, error: membersError } = await supabase
             .from('product_group_members')
-            .select('product_id, product_group_id, priority');
+            .select('product_code, product_group_code, priority');
         
         if (membersError) throw membersError;
+        
+        // Debug: Log raw data from database
+        if (members && members.length > 0) {
+            console.log('🔍 loadProductGroupMembers - Raw data from database (first 3):', members.slice(0, 3).map(m => ({
+                product_code: m.product_code,
+                product_codeType: typeof m.product_code,
+                product_group_code: m.product_group_code,
+                priority: m.priority,
+                allKeys: Object.keys(m)
+            })));
+        } else {
+            console.warn('⚠️ loadProductGroupMembers - No members found in database!');
+        }
         
         // Load groups separately for mapping
         const { data: groups, error: groupsError } = await supabase
             .from('product_groups')
-            .select('id, code, name, priority');
+            .select('code, name, priority');
         
         if (groupsError) throw groupsError;
         
-        // Create group map by id
+        // Create group map by code
         const groupMap = new Map();
-        groups?.forEach(g => groupMap.set(g.id, g));
+        groups?.forEach(g => groupMap.set(g.code, g));
         
-        // Attach group info to members
-        return members?.map(member => ({
-            ...member,
-            product_groups: groupMap.get(member.product_group_id)
-        })) || [];
+        // Attach group info to members and rename product_code to code
+        const transformed = members?.map((member, index) => {
+            // Debug: Log if product_code is missing
+            if (!member.product_code) {
+                console.warn(`⚠️ loadProductGroupMembers - Member at index ${index} has no product_code:`, member);
+            }
+            return {
+                code: member.product_code,  // Rename product_code to code
+                product_group_code: member.product_group_code,
+                priority: member.priority,
+                product_groups: groupMap.get(member.product_group_code)
+            };
+        }) || [];
+        
+        // Debug: Log first few transformed members
+        if (transformed.length > 0) {
+            console.log('🔍 loadProductGroupMembers - First 3 transformed members:', transformed.slice(0, 3).map((m, idx) => ({
+                code: m.code,
+                codeType: typeof m.code,
+                codeValue: `"${m.code}"`,
+                product_group_code: m.product_group_code,
+                original_product_code: members[idx]?.product_code,
+                original_product_codeType: typeof members[idx]?.product_code
+            })));
+        }
+        
+        return transformed;
     } catch (error) {
         console.error('Error loading product group members:', error);
         throw error;
@@ -143,6 +178,24 @@ export async function loadProductGroupAvailability() {
 export function isProductGroupAvailable(groupCode, availabilityRules, userZona, userRegion, userDepo) {
     // Get rules for this group
     const groupRules = availabilityRules.filter(rule => rule.product_group_code === groupCode);
+    
+    // Debug logging for first few groups
+    if (groupCode && (groupCode.includes('WFR') || groupCode.includes('SIP'))) {
+        console.log(`🔍 isProductGroupAvailable for ${groupCode}:`, {
+            groupCode,
+            rulesCount: groupRules.length,
+            userZona,
+            userRegion,
+            userDepo,
+            rules: groupRules.map(r => ({
+                rule_type: r.rule_type,
+                level: r.level,
+                zone_codes: r.zone_codes,
+                region_codes: r.region_codes,
+                depo_codes: r.depo_codes
+            }))
+        });
+    }
     
     // If no rules, default to available
     if (groupRules.length === 0) {
@@ -246,16 +299,6 @@ export async function loadPrincipals() {
     }
 }
 
-/**
- * Load zones (DEPRECATED - tidak digunakan lagi, zona diambil dari currentUser.zona)
- * Fungsi ini tidak diperlukan karena zona sudah ada di user data dari view_area
- */
-export async function loadZones() {
-    // Fungsi ini tidak digunakan lagi
-    // Zona diambil dari currentUser.zona (dari view_area)
-    console.warn('loadZones() is deprecated - zona should come from currentUser.zona');
-    return [];
-}
 
 /**
  * Load regions from view_area
@@ -393,12 +436,12 @@ export async function getDepoInfoByDepoId(depoId) {
 export async function getProductPrice(productCode, zoneCode) {
     try {
         const supabase = getSupabaseClient();
-        // Query langsung menggunakan zone_code (zone_id di prices = zone_code TEXT)
+        // Query langsung menggunakan zone_code
         const { data, error } = await supabase
             .from('prices')
             .select('base_price')
-            .eq('product_id', productCode)
-            .eq('zone_id', zoneCode) // zone_id di prices = zone_code (TEXT)
+            .eq('product_code', productCode)
+            .eq('zone_code', zoneCode) // zone_code di prices (TEXT)
             .single();
         
         if (error) return null;
@@ -435,7 +478,7 @@ export async function loadBucketMembers() {
         const supabase = getSupabaseClient();
         const { data, error } = await supabase
             .from('bucket_members')
-            .select('product_id, bucket_id');
+            .select('product_code, bucket_id');
         
         if (error) throw error;
         return data || [];
@@ -453,7 +496,7 @@ export async function loadBundlePromoGroups(promoId) {
         const supabase = getSupabaseClient();
         const { data, error } = await supabase
             .from('bundle_promo_groups')
-            .select('id, promo_id, group_number, bucket_id, total_quantity, unit')
+            .select('promo_id, group_number, bucket_id, total_quantity, unit')
             .eq('promo_id', promoId)
             .order('group_number');
         
@@ -473,7 +516,7 @@ export async function loadAllBundlePromoGroups() {
         const supabase = getSupabaseClient();
         const { data, error } = await supabase
             .from('bundle_promo_groups')
-            .select('id, promo_id, group_number, bucket_id, total_quantity, unit')
+            .select('promo_id, group_number, bucket_id, total_quantity, unit')
             .order('promo_id, group_number');
         
         if (error) throw error;
@@ -708,12 +751,34 @@ export async function loadFreeProductPromos() {
         const supabase = getSupabaseClient();
         const { data, error } = await supabase
             .from('free_product_promo')
-            .select('promo_id, description, trigger_type, min_purchase_amount, min_quantity, purchase_scope, principal_codes, required_product_id, free_product_id, free_quantity');
+            .select('promo_id, description, trigger_type, min_purchase_amount, min_quantity, unit_min_quantity, purchase_scope, principal_codes, group_codes, required_product_code, free_product_code, free_quantity, unit_free_quantity, discount_type, discount_per_unit, discount_percentage');
         
         if (error) throw error;
         return data || [];
     } catch (error) {
         console.error('Error loading free product promos:', error);
+        throw error;
+    }
+}
+
+/**
+ * Load free product promo tiers
+ * Tiers digunakan untuk percentage discount dengan multiple tiers
+ */
+export async function loadFreeProductPromoTiers() {
+    try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+            .from('free_product_promo_tiers')
+            .select('promo_id, min_quantity, max_quantity, discount_percentage, priority, description')
+            .order('promo_id', { ascending: true })
+            .order('priority', { ascending: true })
+            .order('min_quantity', { ascending: true });
+        
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.error('Error loading free product promo tiers:', error);
         throw error;
     }
 }
@@ -761,11 +826,11 @@ export async function batchGetProductPrincipals(productCodes) {
         
         const supabase = getSupabaseClient();
         
-        // First, get products with principal_id
-        // Note: principal_id in master_products is actually the principal CODE (TEXT), not UUID
+        // First, get products with principal_code
+        // Note: principal_code in master_products is the principal CODE (TEXT), not UUID
         const { data: products, error: productsError } = await supabase
             .from('master_products')
-            .select('code, principal_id')
+            .select('code, principal_code')
             .in('code', productCodes);
         
         if (productsError) throw productsError;
@@ -774,13 +839,13 @@ export async function batchGetProductPrincipals(productCodes) {
         }
         
         // Create final map: product_code -> principal_code
-        // principal_id in master_products stores the principal code directly (TEXT)
+        // principal_code in master_products stores the principal code directly (TEXT)
         // So we can use it directly without any lookup
         const principalMap = new Map();
         (products || []).forEach(product => {
-            if (product.principal_id) {
-                // principal_id is already the principal code, use it directly
-                principalMap.set(product.code, product.principal_id);
+            if (product.principal_code) {
+                // principal_code is already the principal code, use it directly
+                principalMap.set(product.code, product.principal_code);
             }
         });
         
@@ -991,6 +1056,110 @@ function getSpecificity(rule) {
         score += 1;
     }
     return score;
+}
+
+/**
+ * Get master data version from Supabase metadata
+ * Mirror dari kalkulator/app.js getMasterVersion()
+ */
+export async function getMasterVersion() {
+    try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+            .from('metadata')
+            .select('value')
+            .eq('key', 'versionInfo')
+            .single();
+        
+        if (error) {
+            // Jika tabel metadata belum ada, return empty object
+            if (error.code === 'PGRST116') {
+                console.warn('Metadata table not found, returning empty version');
+                return {};
+            }
+            throw error;
+        }
+        return data?.value || {};
+    } catch (error) {
+        console.error('Error getting master version:', error);
+        return {};
+    }
+}
+
+/**
+ * Sync collection data with version checking (mirror dari kalkulator/app.js syncCollectionData)
+ * @param {string} collectionName - Nama collection (untuk localStorage key)
+ * @param {string} versionKey - Key untuk version di metadata (misal: 'master_products')
+ * @param {Function} loadFunction - Function untuk load data dari Supabase
+ * @returns {Promise<{data: any, fromCache: boolean, version: number, updated?: boolean, error?: boolean}>}
+ */
+export async function syncCollectionData(collectionName, versionKey, loadFunction) {
+    const DATA_KEY = `price_engine_${collectionName}`;
+    let dbData = null;
+    
+    // Get local version early (before try block) untuk fallback
+    let localVersion = parseInt(localStorage.getItem(`version_${versionKey}`)) || 0;
+    
+    try {
+        const storedData = localStorage.getItem(DATA_KEY);
+        if (storedData) {
+            dbData = JSON.parse(storedData);
+        }
+    } catch (e) {
+        console.warn(`Failed to parse cached data for ${collectionName}:`, e);
+        dbData = null;
+    }
+
+    try {
+        const versions = await getMasterVersion();
+        const serverVersion = versions[versionKey] || 0;
+        localVersion = parseInt(localStorage.getItem(`version_${versionKey}`)) || 0;
+
+        if (dbData && serverVersion === localVersion && localVersion > 0) {
+            // Versi sama, gunakan cache
+            console.log(`✅ ${collectionName} (v${localVersion}): Siap dari Cache`);
+            return { 
+                data: dbData, 
+                fromCache: true, 
+                version: localVersion 
+            };
+        } else {
+            // Versi berbeda atau belum ada cache, ambil dari server
+            if (localVersion > 0) {
+                console.log(`🔄 ${collectionName}: Update v${localVersion} → v${serverVersion}`);
+            } else {
+                console.log(`📥 ${collectionName} (v${serverVersion}): Unduh Pertama`);
+            }
+            
+            dbData = await loadFunction();
+            
+            // Simpan ke localStorage
+            localStorage.setItem(DATA_KEY, JSON.stringify(dbData));
+            localStorage.setItem(`version_${versionKey}`, serverVersion.toString());
+            
+            return { 
+                data: dbData, 
+                fromCache: false, 
+                version: serverVersion,
+                updated: localVersion > 0 
+            };
+        }
+    } catch (error) {
+        console.error(`❌ Gagal sync ${collectionName}:`, error);
+        
+        // Fallback ke cache lama jika ada
+        if (dbData) {
+            console.warn(`⚠️ Menggunakan data lama dari cache untuk ${collectionName}`);
+            return { 
+                data: dbData, 
+                fromCache: true, 
+                error: true,
+                version: localVersion 
+            };
+        }
+        
+        throw error;
+    }
 }
 
 

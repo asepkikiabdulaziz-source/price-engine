@@ -25,3 +25,32 @@ Thumbs.db
 dist/
 build/
 
+# ============================================
+# NON-CORE FILES - Exclude from git
+# ============================================
+
+# Database files (tidak digunakan)
+db.js
+
+# Documentation files (kecuali README.md)
+*.md
+!README.md
+
+# Uploader tools
+uploader/
+
+# Data files (CSV, SQL)
+tabel usulan/
+
+# Kalkulator (aplikasi terpisah)
+kalkulator/
+
+# Script files
+*.bat
+*.sh
+*.ps1
+
+# Cleanup/deployment docs
+CLEANUP-SUMMARY.md
+DEPLOY-CHECKLIST.md
+

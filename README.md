@@ -15,7 +15,9 @@ price-engine/
 ├── app.js                # Application logic
 ├── auth.js               # Authentication (Supabase)
 ├── database.js           # Database operations (Supabase)
-├── db.js                 # Local database (Dexie - offline sync)
+├── calculation.js        # Price calculation logic
+├── logger.js             # Logger utility (production/development mode)
+├── sw.js                 # Service worker (offline support)
 ├── index.html            # Frontend
 └── ...
 ```
