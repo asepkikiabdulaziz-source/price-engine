@@ -10,7 +10,7 @@
     --success-color: #28a745;
     --warning-color: #ffc107;
     --light-gray: #f8f9fa;
-    --border-color: #e9ecef;
+   
     --header-color: #343a40;
     --background-color: white;
     --card-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
@@ -554,7 +554,7 @@ body {
     font-weight: 600;
 }
 
-/* Upselling Badge untuk Principal Discount di Keranjang */
+/* Upselling Badge untuk Diskon Reguler di Keranjang */
 .upsell-principal-badge {
     background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
     color: #333;
@@ -597,7 +597,7 @@ body {
     font-size: 1em;
 }
 
-/* Upselling Info Direct (untuk Principal & Invoice - tanpa header) */
+/* Upselling Info Direct (untuk Diskon Reguler & Invoice - tanpa header) */
 .upsell-info-direct {
     margin: 6px 0;
     padding: 8px 12px;

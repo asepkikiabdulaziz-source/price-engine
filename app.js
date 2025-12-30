@@ -1758,7 +1758,7 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
         html += '<div class="accordion-item promo-accordion-item">';
         html += `<div class="accordion-header promo-accordion-header" onclick="togglePromoAccordion(this)">
             <span class="accordion-toggle">▼</span>
-            <span class="accordion-title">📊 Promo Grup Produk (Strata)</span>
+            <span class="accordion-title">📊 Pot. Strata</span>
             <span class="accordion-count">(${promos.strata.length} promo)</span>
         </div>`;
         html += '<div class="accordion-content promo-accordion-content">';
@@ -1811,7 +1811,7 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
         html += '<div class="accordion-item promo-accordion-item">';
         html += `<div class="accordion-header promo-accordion-header" onclick="togglePromoAccordion(this)">
             <span class="accordion-toggle">▼</span>
-            <span class="accordion-title">🎁 Promo Bundling</span>
+            <span class="accordion-title">🎁 Program Kawin</span>
             <span class="accordion-count">(${promos.bundling.length} promo)</span>
         </div>`;
         html += '<div class="accordion-content promo-accordion-content">';
@@ -1865,7 +1865,7 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
         html += '<div class="accordion-item promo-accordion-item">';
         html += `<div class="accordion-header promo-accordion-header" onclick="togglePromoAccordion(this)">
             <span class="accordion-toggle">▼</span>
-            <span class="accordion-title">🎁 Promo Gratis Produk</span>
+            <span class="accordion-title">🎁 Pot. Extra Barang</span>
             <span class="accordion-count">(${promos.free_product.length} promo)</span>
         </div>`;
         html += '<div class="accordion-content promo-accordion-content">';
@@ -1931,13 +1931,13 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
                 html += '<div class="accordion-item promo-accordion-item">';
                 html += `<div class="accordion-header promo-accordion-header" onclick="togglePromoAccordion(this)">
                     <span class="accordion-toggle">▼</span>
-                    <span class="accordion-title">🎯 Program Loyalty (Cashback)</span>
+                    <span class="accordion-title">🎯 Program Loyalty</span>
                     <span class="accordion-count">(${loyaltyRulesWithData.length} kelas)</span>
                 </div>`;
                 html += '<div class="accordion-content promo-accordion-content">';
                 html += '<div class="promo-list">';
                 html += '<table class="promo-tier-table">';
-                html += '<thead><tr><th>Kelas</th><th>Target Bulanan</th><th>Cashback</th></tr></thead>';
+                html += '<thead><tr><th>Kelas</th><th>Target Bulanan</th><th>Loyalty</th></tr></thead>';
                 html += '<tbody>';
                 
                 loyaltyRulesWithData.forEach(item => {
@@ -2504,8 +2504,8 @@ function getBundleUpsellingRecommendation(
     const discountFormatted = Math.round(discountPerPackage).toLocaleString('id-ID');
     
     const message = isFirstPackage 
-        ? `Tambahkan bucket ${targetBucket.bucketId} sebanyak ${gapQtyFormatted} ${unitLabel} untuk mendapat potongan bundling sebesar ${discountFormatted}`
-        : `Tambahkan bucket ${targetBucket.bucketId} sebanyak ${gapQtyFormatted} ${unitLabel} untuk mendapat 1 paket bundle lagi (potongan tambahan ${discountFormatted})`;
+        ? `Tambahkan ${targetBucket.bucketId} sebanyak ${gapQtyFormatted} ${unitLabel} untuk mendapat potongan Program Kawin sebesar ${discountFormatted}`
+        : `Tambahkan ${targetBucket.bucketId} sebanyak ${gapQtyFormatted} ${unitLabel} untuk mendapat 1 paket Program Kawin lagi (potongan tambahan ${discountFormatted})`;
     
     console.log(`  ✅ Upselling recommendation found for promo ${promoId}: ${message}`);
     
@@ -2940,8 +2940,8 @@ function updateBundleUpsellingRecommendations() {
                 
                 badge.innerHTML = `
                     Potongan saat ini <strong>${currentDiscount}</strong> 
-                    tambahkan bucket <strong>${targetBucketId}</strong> sebanyak <strong>${upsellingRec.gapQty.toFixed(1)} ${upsellingRec.gapUnit}</strong> 
-                    untuk mendapat ${upsellingRec.isFirstPackage ? 'potongan bundling sebesar' : '1 paket bundle lagi (potongan tambahan)'} <strong>${discountFormatted}</strong>
+                    tambahkan <strong>${targetBucketId}</strong> sebanyak <strong>${upsellingRec.gapQty.toFixed(1)} ${upsellingRec.gapUnit}</strong> 
+                    untuk mendapat ${upsellingRec.isFirstPackage ? 'potongan Program Kawin sebesar' : '1 paket Program Kawin lagi (potongan tambahan)'} <strong>${discountFormatted}</strong>
                     <span style="font-size: 0.85em; opacity: 0.8;"> (Paket ${currentPromoId})</span>
                 `;
                 
@@ -3160,13 +3160,13 @@ function getPrincipalUpsellingRecommendation(
         // Multiple principals: sebutkan semua principals yang perlu ditambah
         const otherPrincipals = nextTierPrincipalCodes.filter(pc => pc !== normalizedPrincipalCode);
         if (otherPrincipals.length > 0) {
-            message = `Tambah belanja ${formatCurrency(gap)} untuk principal ${normalizedPrincipalCode} (atau gabungan dengan ${otherPrincipals.join(', ')}) untuk mendapat diskon ${nextDiscount}% (saat ini ${currentDiscount}%)`;
+            message = `Tambah belanja ${formatCurrency(gap)} untuk diskon reguler ${normalizedPrincipalCode} (atau gabungan dengan ${otherPrincipals.join(', ')}) untuk mendapat diskon ${nextDiscount}% (saat ini ${currentDiscount}%)`;
         } else {
-            message = `Tambah belanja ${formatCurrency(gap)} untuk principal ${normalizedPrincipalCode} untuk mendapat diskon ${nextDiscount}% (saat ini ${currentDiscount}%)`;
+            message = `Tambah belanja ${formatCurrency(gap)} untuk diskon reguler ${normalizedPrincipalCode} untuk mendapat diskon ${nextDiscount}% (saat ini ${currentDiscount}%)`;
         }
     } else {
         // Single principal
-        message = `Tambah belanja ${formatCurrency(gap)} untuk principal ${normalizedPrincipalCode} untuk mendapat diskon ${nextDiscount}% (saat ini ${currentDiscount}%)`;
+        message = `Tambah belanja ${formatCurrency(gap)} untuk diskon reguler ${normalizedPrincipalCode} untuk mendapat diskon ${nextDiscount}% (saat ini ${currentDiscount}%)`;
     }
     
     return {
@@ -3794,7 +3794,7 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
                             <span class="accordion-title">${shortDescription}</span>
                             <span class="accordion-icon" id="icon-${promoAccordionId}">▼</span>
                         </button>
-                        <button class="btn-promo-info" onclick="showBundlePromoModal('${promoId}'); event.stopPropagation();" title="Info Promo" style="position: absolute; right: 40px; top: 50%; transform: translateY(-50%); background: #007bff; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; z-index: 10;">ℹ️</button>
+                        <button class="btn-promo-info" onclick="showBundlePromoModal('${promoId}'); event.stopPropagation();" title="Info Promo" style="position: absolute; right: 40px; top: 50%; transform: translateY(-50%); background: #007bff; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; z-index: 10;">🎁</button>
                     </div>
                     <div class="accordion-content" id="${promoAccordionId}">
             `;
@@ -3812,7 +3812,7 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
                 html += `
                     <div class="accordion-item" data-promo-id="${promoId}" data-bucket-id="${bucketId}" style="margin-left: 0; margin-top: 0; border-left: none;">
                         <button class="accordion-header" onclick="toggleAccordion('${bucketAccordionId}')" style="background: #e2e6ea; font-size: 0.85em; font-weight: bold; color: #343a40;">
-                            <span class="accordion-title">Bucket ${bucketId}</span>
+                            <span class="accordion-title">${bucketId}</span>
                             <span class="accordion-icon" id="icon-${bucketAccordionId}">▼</span>
                         </button>
                         <div class="accordion-content" id="${bucketAccordionId}">
@@ -3978,7 +3978,7 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
                         <span class="accordion-title">${group.name}${group.name !== group.code ? ` (${group.code})` : ''}</span>
                         <span class="accordion-icon" id="icon-${accordionId}">▼</span>
                     </button>
-                    <button class="btn-promo-info" onclick="showGroupPromoModal('${group.code}'); event.stopPropagation();" title="Info Promo" style="position: absolute; right: 40px; top: 50%; transform: translateY(-50%); background: #007bff; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; z-index: 10;">ℹ️</button>
+                    <button class="btn-promo-info" onclick="showGroupPromoModal('${group.code}'); event.stopPropagation();" title="Info Promo" style="position: absolute; right: 40px; top: 50%; transform: translateY(-50%); background: #007bff; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; z-index: 10;">🎁</button>
                 </div>
                 <div class="accordion-content" id="${accordionId}">
                     <div class="products-list">
@@ -4836,16 +4836,16 @@ function renderCartItem(productId, item) {
             // Rincian promo
             const promoDetails = [];
             if (calcItem.discountAmount > 0) {
-                promoDetails.push(`Principal: ${formatCurrency(calcItem.discountAmount)}`);
+                promoDetails.push(`Diskon Reguler: ${formatCurrency(calcItem.discountAmount)}`);
             }
             if (itemGroupPromoDiscount > 0) {
                 promoDetails.push(`Strata: ${formatCurrency(itemGroupPromoDiscount)}`);
             }
             if (itemBundlePromoDiscount > 0) {
-                promoDetails.push(`Bundle: ${formatCurrency(itemBundlePromoDiscount)}`);
+                promoDetails.push(`Program Kawin: ${formatCurrency(itemBundlePromoDiscount)}`);
             }
             if (itemFreeProductDiscount > 0) {
-                promoDetails.push(`Free Product: ${formatCurrency(itemFreeProductDiscount)}`);
+                promoDetails.push(`Pot. Extra Barang: ${formatCurrency(itemFreeProductDiscount)}`);
             }
             if (itemInvoiceDiscount > 0) {
                 promoDetails.push(`Invoice: ${formatCurrency(itemInvoiceDiscount)}`);
@@ -5393,10 +5393,10 @@ function showFakturModal() {
     
     fakturHtml += `</tbody></table>
         <div class="faktur-summary">
-            <div class="summary-row"><span class="summary-label">Total Harga Dasar</span><span class="summary-value">${formatCurrency(result.basePrice || result.totalBasePrice || 0)}</span></div>
-            <div class="summary-row discount-row"><span class="summary-label">(-) Diskon Principal</span><span class="summary-value value-danger">- ${formatCurrency(result.principalDiscount || 0)}</span></div>
-            <div class="summary-row discount-row"><span class="summary-label">(-) Promo Grup Produk</span><span class="summary-value value-danger">- ${formatCurrency(result.groupPromoDiscount || 0)}</span></div>
-            <div class="summary-row discount-row"><span class="summary-label">(-) Promo Bundling</span><span class="summary-value value-danger">- ${formatCurrency(result.bundlePromoDiscount || 0)}</span></div>
+            <div class="summary-row"><span class="summary-label">Total Gross</span><span class="summary-value">${formatCurrency(result.basePrice || result.totalBasePrice || 0)}</span></div>
+            <div class="summary-row discount-row"><span class="summary-label">(-) Diskon Reguler</span><span class="summary-value value-danger">- ${formatCurrency(result.principalDiscount || 0)}</span></div>
+            <div class="summary-row discount-row"><span class="summary-label">(-) Pot. Strata</span><span class="summary-value value-danger">- ${formatCurrency(result.groupPromoDiscount || 0)}</span></div>
+            <div class="summary-row discount-row"><span class="summary-label">(-) Program Kawin</span><span class="summary-value value-danger">- ${formatCurrency(result.bundlePromoDiscount || 0)}</span></div>
             <div class="summary-row discount-row"><span class="summary-label">(-) Diskon Invoice</span><span class="summary-value value-danger">- ${formatCurrency(result.invoiceDiscount || 0)}</span></div>
             <div class="summary-row on-faktur-row" style="border-top: 2px solid #333;"><span class="summary-label">Total Harga Nett</span><span class="summary-value">${formatCurrency(totalNett)}</span></div>
             ${(() => {
@@ -5404,7 +5404,7 @@ function showFakturModal() {
                 if (cashback.isAvailable && cashback.cashbackAmount > 0) {
                     return `
                         <div class="summary-row discount-row" style="color:var(--success-color); font-weight:bold;">
-                            <span class="summary-label">(-) Cashback Loyalty (${cashback.loyaltyClassName || cashback.loyaltyClassCode})</span>
+                            <span class="summary-label">(-) Loyalty (${cashback.loyaltyClassName || cashback.loyaltyClassCode})</span>
                             <span class="summary-value value-danger">- ${formatCurrency(cashback.cashbackAmount)}</span>
                         </div>
                     `;
@@ -6139,15 +6139,15 @@ function showDetailHargaModal(productId) {
             </thead>
             <tbody>
                 <tr>
-                    <td class="label">Harga Dasar (Inc PPN)</td>
+                    <td class="label">Gross (Inc PPN)</td>
                     <td class="value">${formatCurrency(hargaDasarKrt)}</td>
                 </tr>
                 <tr>
-                    <td class="label">Potongan Principal</td>
+                    <td class="label">Diskon Reguler</td>
                     <td class="value value-danger">- ${formatCurrency(discPrincipalPerKrt)}</td>
                 </tr>
                 <tr>
-                    <td class="label">Potongan Group Promo (Strata)</td>
+                    <td class="label">Pot. Strata</td>
                     <td class="value value-danger">- ${formatCurrency(discGroupPromoPerKrt)}</td>
                 </tr>
                 ${(() => {
@@ -6159,7 +6159,7 @@ function showDetailHargaModal(productId) {
                         // No bundle promo discount
                         return `
                             <tr>
-                                <td class="label">Potongan Bundle Promo</td>
+                                <td class="label">Potongan Program Kawin</td>
                                 <td class="value value-danger">- ${formatCurrency(discBundlePromoPerKrt)}</td>
                             </tr>
                         `;
@@ -6169,7 +6169,7 @@ function showDetailHargaModal(productId) {
                         const discountPerKrt = qtyKrtTotal > 0 ? (bundlePromoBreakdown[promoId] / qtyKrtTotal) : 0;
                         return `
                             <tr>
-                                <td class="label">Potongan Bundle Promo (${promoId})</td>
+                                <td class="label">Potongan Program Kawin (${promoId})</td>
                                 <td class="value value-danger">- ${formatCurrency(discountPerKrt)}</td>
                             </tr>
                         `;
@@ -6177,7 +6177,7 @@ function showDetailHargaModal(productId) {
                         // Multiple promos, show breakdown
                         let html = `
                             <tr>
-                                <td class="label">Potongan Bundle Promo</td>
+                                <td class="label">Potongan Program Kawin</td>
                                 <td class="value value-danger">- ${formatCurrency(discBundlePromoPerKrt)}</td>
                             </tr>
                         `;
@@ -6196,7 +6196,7 @@ function showDetailHargaModal(productId) {
                 })()}
                 ${discFreeProductPerKrt > 0 ? `
                 <tr>
-                    <td class="label">Potongan Free Product</td>
+                    <td class="label">Pot. Extra Barang</td>
                     <td class="value value-danger">- ${formatCurrency(discFreeProductPerKrt)}</td>
                 </tr>
                 ` : ''}
@@ -6210,16 +6210,19 @@ function showDetailHargaModal(productId) {
                 </tr>
                 ${(() => {
                     const cashback = window.lastCalculationResult?.loyaltyCashback || {};
-                    if (cashback.isAvailable && cashback.cashbackAmount > 0) {
-                        const cashbackPerKrt = qtyKrtTotal > 0 ? (cashback.cashbackAmount / qtyKrtTotal) : 0;
+                    // Cashback hanya berlaku untuk principal KSNI
+                    const isKSNIProduct = product && product.principal_code === 'KSNI';
+                    if (cashback.isAvailable && cashback.cashbackPercentage > 0 && isKSNIProduct) {
+                        // Cashback per krt = reward (persentase) * harga nett per krt
+                        const cashbackPerKrt = hargaNettPerKrt * (cashback.cashbackPercentage / 100);
                         const hargaSetelahCashback = Math.max(0, hargaNettPerKrt - cashbackPerKrt);
                         return `
                             <tr>
-                                <td class="label">(-) Cashback Loyalty (${cashback.loyaltyClassName || cashback.loyaltyClassCode})</td>
+                                <td class="label">(-) Loyalty (${cashback.loyaltyClassName || cashback.loyaltyClassCode})</td>
                                 <td class="value value-danger">- ${formatCurrency(cashbackPerKrt)}</td>
                             </tr>
                             <tr class="final-total-row" style="background-color: #e8f5e9; border-top: 2px solid #4caf50;">
-                                <td class="label" style="font-weight: bold;">Harga Setelah Cashback</td>
+                                <td class="label" style="font-weight: bold;">Harga Setelah Loyalty</td>
                                 <td class="value" style="font-weight: bold; color: #2e7d32;">${formatCurrency(hargaSetelahCashback)}</td>
                             </tr>
                         `;
@@ -6229,22 +6232,9 @@ function showDetailHargaModal(productId) {
             </tbody>
         </table>
         
-        ${(() => {
-            const cashback = window.lastCalculationResult?.loyaltyCashback || {};
-            if (cashback.isAvailable && cashback.cashbackAmount > 0) {
-                return `
-                    <div class="modal-info-box success" style="margin-top: 15px;">
-                        <strong>Cashback Loyalty:</strong> ${cashback.loyaltyClassName || cashback.loyaltyClassCode} - 
-                        ${formatCurrency(cashback.cashbackAmount)} (${cashback.cashbackPercentage}% dari Total Nett)
-                        <br><small>*Cashback diberikan per transaksi untuk principal KSNI</small>
-                    </div>
-                `;
-            }
-            return '';
-        })()}
         
         <div class="modal-info-box info">
-            *Harga nett adalah harga setelah semua diskon diterapkan (Principal, Group Promo, Bundle Promo, dan Invoice Discount).
+            *Harga nett adalah harga setelah semua diskon diterapkan (Diskon Reguler, Pot. Strata, Program Kawin, dan Invoice Discount).
         </div>
     `;
     
@@ -6275,7 +6265,7 @@ window.showGroupPromoModal = function(groupCode) {
     );
     
     if (!groupPromo) {
-        promoModalTitle.textContent = `Info Promo - Group ${groupCode}`;
+        promoModalTitle.textContent = `📊 Info Promo - Group ${groupCode}`;
         promoModalDetails.innerHTML = '<p>Tidak ada promo yang tersedia untuk group ini.</p>';
         promoModal.style.display = 'block';
         return;
@@ -6336,7 +6326,7 @@ window.showGroupPromoModal = function(groupCode) {
         html += '<p style="color: #888; margin-top: 15px;">Tidak ada tier yang tersedia untuk promo ini.</p>';
     }
     
-    promoModalTitle.textContent = `Info Promo - Group ${groupCode}`;
+    promoModalTitle.textContent = `📊 Info Promo - Group ${groupCode}`;
     promoModalDetails.innerHTML = html;
     promoModal.style.display = 'block';
 };
@@ -6386,7 +6376,7 @@ window.showBundlePromoModal = function(promoId) {
             <h4 style="color: #1e3a8a; margin-bottom: 10px;">Paket ${bundlePromo.promo_id || 'N/A'}</h4>
             <p style="color: #666; margin-bottom: 10px;">${bundlePromo.description || '-'}</p>
             <div style="font-size: 0.9em; color: #888; margin-bottom: 10px;">
-                <strong>Bucket:</strong> ${bucketIds.join(', ') || '-'}
+                <strong>${bucketIds.join(', ') || '-'}</strong>
             </div>
             <div style="font-size: 0.9em; color: #888;">
                 <strong>Diskon per paket:</strong> <span style="color: var(--success-color, #28a745); font-weight: bold;">${formatCurrency(bundlePromo.discount_per_package || 0)}</span>
@@ -6407,7 +6397,7 @@ window.showBundlePromoModal = function(promoId) {
             const productIds = buckets.get(bucketId) || [];
             if (productIds.length > 0) {
                 html += `<div style="margin-bottom: 10px;">`;
-                html += `<strong>Bucket ${bucketId}:</strong> `;
+                html += `<strong>${bucketId}:</strong> `;
                 html += `<span style="font-size: 0.9em; color: #666;">${productIds.join(', ')}</span>`;
                 html += `</div>`;
             }
@@ -6416,7 +6406,7 @@ window.showBundlePromoModal = function(promoId) {
         html += '</div>';
     }
     
-    promoModalTitle.textContent = `Info Promo - Paket ${promoId}`;
+    promoModalTitle.textContent = `🎁 Info Promo - Paket ${promoId}`;
     promoModalDetails.innerHTML = html;
     promoModal.style.display = 'block';
 };
