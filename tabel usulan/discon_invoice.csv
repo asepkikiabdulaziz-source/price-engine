@@ -1,6 +1,0 @@
-promo_id,description,min_purchase_amount,payment_method,discount_percentage
-inv-001,Diskon Invoice COD 1%,1000000,COD,1.0
-inv-002,Diskon Invoice CBD 1.5%,1000000,CBD,1.5
-inv-003,Diskon Invoice COD 2%,2000000,COD,2.0
-inv-004,Diskon Invoice CBD 2.5%,2000000,CBD,2.5
-
