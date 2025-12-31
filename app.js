@@ -663,6 +663,146 @@ function displayUserInfo(user) {
 }
 
 /**
+ * Show welcome message dengan informasi versi tabel dan status sync
+ */
+async function showWelcomeMessage() {
+    const welcomeMessage = document.getElementById('welcome-message');
+    const welcomeBody = document.getElementById('welcome-message-body');
+    
+    if (!welcomeMessage || !welcomeBody) {
+        logger.warn('Welcome message elements not found');
+        return;
+    }
+    
+    try {
+        // Get master version dari database
+        const serverVersions = await getMasterVersion();
+        
+        // Get local versions dari localStorage
+        const localVersions = {};
+        const versionKeys = [
+            'master_products',
+            'master_prices',
+            'master_product_groups',
+            'master_regions',
+            'master_depos',
+            'master_promo_availability',
+            'master_principal_discount_tiers',
+            'master_group_promos',
+            'master_group_promo_tiers',
+            'master_bundle_promos',
+            'master_bundle_promo_groups',
+            'master_invoice_discounts',
+            'master_free_product_promos',
+            'master_loyalty_classes',
+            'master_loyalty_availability'
+        ];
+        
+        versionKeys.forEach(key => {
+            const localVersion = parseInt(localStorage.getItem(`version_${key}`)) || 0;
+            const serverVersion = serverVersions[key] || 0;
+            localVersions[key] = {
+                local: localVersion,
+                server: serverVersion,
+                synced: localVersion === serverVersion && localVersion > 0,
+                needsUpdate: localVersion > 0 && localVersion !== serverVersion
+            };
+        });
+        
+        // Build HTML untuk versi info
+        let html = '<div class="version-info-container">';
+        html += '<div class="version-info-header">📊 Versi Tabel Master Data</div>';
+        html += '<div class="version-info-list">';
+        
+        // Group by status
+        const synced = [];
+        const needsUpdate = [];
+        const notCached = [];
+        
+        versionKeys.forEach(key => {
+            const info = localVersions[key];
+            const displayName = key.replace('master_', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            
+            if (info.synced) {
+                synced.push({ name: displayName, version: info.local });
+            } else if (info.needsUpdate) {
+                needsUpdate.push({ name: displayName, local: info.local, server: info.server });
+            } else {
+                notCached.push({ name: displayName, version: info.server });
+            }
+        });
+        
+        // Tampilkan yang perlu update dulu
+        if (needsUpdate.length > 0) {
+            html += '<div class="version-status-group needs-update">';
+            html += '<div class="version-status-title">🔄 Perlu Update:</div>';
+            needsUpdate.forEach(item => {
+                html += `<div class="version-item">
+                    <span class="version-name">${escapeHtml(item.name)}</span>
+                    <span class="version-badge update">v${item.local} → v${item.server}</span>
+                </div>`;
+            });
+            html += '</div>';
+        }
+        
+        // Tampilkan yang sudah sync
+        if (synced.length > 0) {
+            html += '<div class="version-status-group synced">';
+            html += '<div class="version-status-title">✅ Tersinkronisasi:</div>';
+            synced.forEach(item => {
+                html += `<div class="version-item">
+                    <span class="version-name">${escapeHtml(item.name)}</span>
+                    <span class="version-badge synced">v${item.version}</span>
+                </div>`;
+            });
+            html += '</div>';
+        }
+        
+        // Tampilkan yang belum di-cache
+        if (notCached.length > 0) {
+            html += '<div class="version-status-group not-cached">';
+            html += '<div class="version-status-title">📥 Belum Di-cache:</div>';
+            notCached.forEach(item => {
+                html += `<div class="version-item">
+                    <span class="version-name">${escapeHtml(item.name)}</span>
+                    <span class="version-badge not-cached">v${item.version}</span>
+                </div>`;
+            });
+            html += '</div>';
+        }
+        
+        html += '</div></div>';
+        
+        welcomeBody.innerHTML = html;
+        welcomeMessage.style.display = 'block';
+        
+        // Setup close button
+        const closeBtn = document.getElementById('close-welcome-btn');
+        if (closeBtn) {
+            closeBtn.onclick = () => {
+                welcomeMessage.style.display = 'none';
+            };
+        }
+        
+        // Auto-hide setelah 10 detik (optional)
+        setTimeout(() => {
+            if (welcomeMessage.style.display !== 'none') {
+                welcomeMessage.style.opacity = '0';
+                setTimeout(() => {
+                    welcomeMessage.style.display = 'none';
+                    welcomeMessage.style.opacity = '1';
+                }, 300);
+            }
+        }, 10000);
+        
+    } catch (error) {
+        logger.error('Error showing welcome message:', error);
+        welcomeBody.innerHTML = '<div class="version-info-error">⚠️ Gagal memuat informasi versi. Data akan di-load saat diperlukan.</div>';
+        welcomeMessage.style.display = 'block';
+    }
+}
+
+/**
  * Setup store type options berdasarkan div_sls
  * - AEPDA: hanya GROSIR (disable Retail option)
  * - Selain AEPDA: bisa GROSIR atau RETAIL
