@@ -404,6 +404,9 @@ async function loadRegionsForLogin() {
         // Clear existing options (except first option)
         regionSelect.innerHTML = '<option value="">Pilih Region</option>';
         
+        // Ensure region select is enabled (important for mobile after refresh)
+        regionSelect.disabled = false;
+        
         if (!regions || regions.length === 0) {
             logger.warn('No regions found!');
             const option = document.createElement('option');
@@ -422,12 +425,17 @@ async function loadRegionsForLogin() {
             regionSelect.appendChild(option);
         });
         
+        // Ensure region select is enabled after populating (extra safety for mobile)
+        regionSelect.disabled = false;
+        
         logger.log(`Successfully populated ${regions.length} regions in dropdown`);
     } catch (error) {
         logger.error('Error loading regions:', error);
         const regionSelect = document.getElementById('region');
         if (regionSelect) {
             regionSelect.innerHTML = '<option value="">Error loading regions - Silakan refresh</option>';
+            // Ensure it's still enabled even on error (so user can try again)
+            regionSelect.disabled = false;
         }
     }
 }
@@ -551,6 +559,35 @@ async function handleLogout() {
 function showLogin() {
     document.getElementById('login-section').style.display = 'flex';
     document.getElementById('app-section').style.display = 'none';
+    
+    // Reset form login dengan benar
+    const loginForm = document.getElementById('login-form');
+    if (loginForm) {
+        loginForm.reset();
+    }
+    
+    // Reset region dropdown - pastikan enabled dan kosong
+    const regionSelect = document.getElementById('region');
+    if (regionSelect) {
+        regionSelect.disabled = false;
+        regionSelect.value = '';
+        regionSelect.innerHTML = '<option value="">Pilih Region</option>';
+    }
+    
+    // Reset depo dropdown - disabled dan kosong
+    const depoSelect = document.getElementById('depo');
+    if (depoSelect) {
+        depoSelect.disabled = true;
+        depoSelect.value = '';
+        depoSelect.innerHTML = '<option value="">Pilih Depo</option>';
+    }
+    
+    // Clear error message
+    const loginError = document.getElementById('login-error');
+    if (loginError) {
+        loginError.textContent = '';
+        loginError.classList.remove('show');
+    }
     
     // Load regions untuk dropdown (pastikan selalu dimuat saat login form ditampilkan)
     loadRegionsForLogin();
@@ -1667,6 +1704,9 @@ async function loadPromosData() {
                 });
             }
         });
+        
+        // Store available promos globally for modal access (filtered by availability)
+        availablePromosGlobal = availablePromos;
         
         // Render promos to tab
         renderPromos(availablePromos, promoAvailabilityRules, currentUser);
@@ -4357,6 +4397,7 @@ let bundlePromosList = []; // Store bundle promos for calculation
 let bundlePromoGroupsList = []; // Store bundle promo groups for calculation
 let loyaltyClasses = []; // Store loyalty classes
 let loyaltyAvailabilityRules = []; // Store loyalty availability rules
+let availablePromosGlobal = null; // Store filtered available promos for modal access
 
 // Setup event listeners for detail harga buttons
 function setupDetailHargaListeners() {
@@ -6339,10 +6380,50 @@ window.showGroupPromoModal = function(groupCode) {
         return;
     }
     
-    // Find group promo for this group code
-    const groupPromo = groupPromos.find(promo => 
-        promo.product_group_code && promo.product_group_code.toLowerCase() === groupCode.toLowerCase()
-    );
+    // Find group promo from filtered available promos (only shows available promos)
+    // This ensures modal only shows promos that passed availability filter
+    let groupPromo = null;
+    if (availablePromosGlobal && availablePromosGlobal.strata) {
+        groupPromo = availablePromosGlobal.strata.find(promo => 
+            promo.product_group_code && promo.product_group_code.toLowerCase() === groupCode.toLowerCase()
+        );
+    }
+    
+    // Fallback: if not found in availablePromosGlobal, try to find from all promos
+    // but check availability before showing
+    if (!groupPromo) {
+        const allGroupPromo = groupPromos.find(promo => 
+            promo.product_group_code && promo.product_group_code.toLowerCase() === groupCode.toLowerCase()
+        );
+        
+        // Check if this promo is available for current user
+        if (allGroupPromo) {
+            const storeTypeEl = document.getElementById('store-type');
+            const selectedStoreType = storeTypeEl ? storeTypeEl.value : 'grosir';
+            const userZona = currentUser?.zona || null;
+            const userRegion = currentUser?.region_name || null;
+            const userDepo = currentUser?.depo_id || null;
+            
+            if (isPromoAvailable(
+                allGroupPromo.promo_id,
+                'strata',
+                promoAvailabilityRules,
+                selectedStoreType,
+                userZona,
+                userRegion,
+                userDepo
+            )) {
+                // Convert to format compatible with modal display
+                groupPromo = {
+                    promo_id: allGroupPromo.promo_id,
+                    description: allGroupPromo.description,
+                    product_group_code: allGroupPromo.product_group_code,
+                    tier_mode: allGroupPromo.tier_mode,
+                    tier_unit: allGroupPromo.tier_unit
+                };
+            }
+        }
+    }
     
     if (!groupPromo) {
         promoModalTitle.textContent = `📊 Info Promo - Group ${escapeHtml(groupCode)}`;
@@ -6355,8 +6436,18 @@ window.showGroupPromoModal = function(groupCode) {
         return;
     }
     
-    // Get tiers for this promo
-    const promoTiers = groupPromoTiers.filter(tier => tier.promo_id === groupPromo.promo_id);
+    // Get tiers for this promo (use tiers from availablePromosGlobal if available)
+    let promoTiers = [];
+    if (availablePromosGlobal && availablePromosGlobal.strata) {
+        const availablePromo = availablePromosGlobal.strata.find(p => p.promo_id === groupPromo.promo_id);
+        if (availablePromo && availablePromo.tiers) {
+            promoTiers = availablePromo.tiers;
+        } else {
+            promoTiers = groupPromoTiers.filter(tier => tier.promo_id === groupPromo.promo_id);
+        }
+    } else {
+        promoTiers = groupPromoTiers.filter(tier => tier.promo_id === groupPromo.promo_id);
+    }
     
     const formatCurrency = (amount) => {
         const roundedAmount = Math.round(amount || 0);
@@ -6435,8 +6526,39 @@ window.showBundlePromoModal = function(promoId) {
         return;
     }
     
-    // Find bundle promo
-    const bundlePromo = bundlePromosList.find(promo => promo.promo_id === promoId);
+    // Find bundle promo from filtered available promos (only shows available promos)
+    // This ensures modal only shows promos that passed availability filter
+    let bundlePromo = null;
+    if (availablePromosGlobal && availablePromosGlobal.bundling) {
+        bundlePromo = availablePromosGlobal.bundling.find(promo => promo.promo_id === promoId);
+    }
+    
+    // Fallback: if not found in availablePromosGlobal, try to find from all promos
+    // but check availability before showing
+    if (!bundlePromo) {
+        const allBundlePromo = bundlePromosList.find(promo => promo.promo_id === promoId);
+        
+        // Check if this promo is available for current user
+        if (allBundlePromo) {
+            const storeTypeEl = document.getElementById('store-type');
+            const selectedStoreType = storeTypeEl ? storeTypeEl.value : 'grosir';
+            const userZona = currentUser?.zona || null;
+            const userRegion = currentUser?.region_name || null;
+            const userDepo = currentUser?.depo_id || null;
+            
+            if (isPromoAvailable(
+                allBundlePromo.promo_id,
+                'bundling',
+                promoAvailabilityRules,
+                selectedStoreType,
+                userZona,
+                userRegion,
+                userDepo
+            )) {
+                bundlePromo = allBundlePromo;
+            }
+        }
+    }
     
     if (!bundlePromo) {
         promoModalTitle.textContent = `Info Promo - Paket ${escapeHtml(promoId)}`;
