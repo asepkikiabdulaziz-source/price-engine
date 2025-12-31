@@ -652,10 +652,12 @@ export async function loadAllBundlePromoGroups() {
  */
 export async function loadPromoAvailability(filters = {}) {
     try {
-        // Validasi: jika semua filter parameter kosong/null, kembalikan array kosong
+        // Validasi: jika semua filter parameter kosong/null, tetap load semua data (untuk offline support)
+        // Jangan return empty array karena akan memblokir offline functionality
+        // Filtering storeType akan dilakukan di client-side oleh isPromoAvailable()
         if (!filters.storeType && !filters.zoneCode && !filters.regionCode && !filters.depoId) {
-            logger.warn('loadPromoAvailability: All filter parameters are empty/null, returning empty array');
-            return [];
+            logger.log('loadPromoAvailability: No filters provided, loading all promo availability rules (for offline support)');
+            // Jangan return empty array, lanjutkan load semua data
         }
         
         const supabase = getSupabaseClient();

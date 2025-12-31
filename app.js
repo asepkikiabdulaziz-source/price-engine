@@ -845,12 +845,7 @@ async function clearAllApplicationData() {
             cart.clear();
         }
         
-        // 2. Clear AppStore cart jika ada
-        if (typeof window.AppStore !== 'undefined' && window.AppStore.clearCart) {
-            window.AppStore.clearCart();
-        }
-        
-        // 3. Clear hanya user-specific localStorage (BUKAN master data)
+        // 2. Clear hanya user-specific localStorage (BUKAN master data)
         const localStorageKeysToRemove = [];
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
@@ -1522,11 +1517,6 @@ async function loadProductsData() {
             return;
         }
         
-        // Update AppStore
-        if (typeof window.AppStore !== 'undefined') {
-            window.AppStore.setProducts(products);
-        }
-        
         // Build product data map for cart display
         productDataMap.clear();
         products.forEach(product => {
@@ -1537,10 +1527,6 @@ async function loadProductsData() {
         const groupsResult = await syncCollectionData('product_groups', 'product_groups', loadProductGroups);
         const productGroups = groupsResult.data || [];
         logger.log(`Loaded ${productGroups?.length || 0} product groups ${groupsResult.fromCache ? '(from cache)' : '(from server)'}`);
-        
-        if (typeof window.AppStore !== 'undefined') {
-            window.AppStore.setProductGroups(productGroups);
-        }
         
         // Load product group availability rules dengan version checking dan filter
         // Pastikan zoneId sudah didefinisikan (gunakan zona dari user atau dapatkan dari depo_id)
@@ -1554,10 +1540,6 @@ async function loadProductsData() {
         );
         productGroupAvailabilityRules = availabilityResult.data || [];
         logger.log(`Loaded ${productGroupAvailabilityRules?.length || 0} availability rules ${availabilityResult.fromCache ? '(from cache)' : '(from server)'}${zoneId ? ` (filtered by zone: ${zoneId})` : ''}`);
-        
-        if (typeof window.AppStore !== 'undefined') {
-            window.AppStore.setProductGroupAvailability(productGroupAvailabilityRules);
-        }
         
         // Filter groups based on availability rules (user's zona, region, depo)
         
@@ -1616,9 +1598,6 @@ async function loadProductsData() {
             }
         }
         
-        if (typeof window.AppStore !== 'undefined') {
-            window.AppStore.setProductGroupMembers(groupMembers);
-        }
         if (!groupMembers || groupMembers.length === 0) {
             logger.warn('No product group members found!');
         }
@@ -1875,18 +1854,10 @@ async function loadProductsData() {
         promoAvailabilityRules = promoAvailabilityResult.data || [];
         logger.log(`Loaded ${promoAvailabilityRules?.length || 0} promo availability rules ${promoAvailabilityResult.fromCache ? '(from cache)' : '(from server)'}${userRegionForPromo ? ` (filtered by region: ${userRegionForPromo})` : ''} - store type filtering will be done client-side`);
         
-        if (typeof window.AppStore !== 'undefined') {
-            window.AppStore.setPromoAvailability(promoAvailabilityRules);
-        }
-        
         // Load bundle promos dengan version checking
         const bundlePromosResult = await syncCollectionData('bundle_promos', 'bundle_promos', loadBundlePromos);
         bundlePromosList = bundlePromosResult.data || [];
         logger.log(`Loaded ${bundlePromosList?.length || 0} bundle promos ${bundlePromosResult.fromCache ? '(from cache)' : '(from server)'}`);
-        
-        if (typeof window.AppStore !== 'undefined') {
-            window.AppStore.setBundlePromos(bundlePromosList);
-        }
         
         // Get store type from DOM for filtering
         const storeTypeEl = document.getElementById('store-type');
@@ -1913,10 +1884,6 @@ async function loadProductsData() {
         const bundlePromoGroupsResult = await syncCollectionData('bundle_promo_groups', 'bundle_promo_groups', loadAllBundlePromoGroups);
         bundlePromoGroupsList = bundlePromoGroupsResult.data || [];
         logger.log(`Loaded ${bundlePromoGroupsList?.length || 0} bundle promo groups ${bundlePromoGroupsResult.fromCache ? '(from cache)' : '(from server)'}`);
-        
-        if (typeof window.AppStore !== 'undefined') {
-            window.AppStore.setBundlePromoGroups(bundlePromoGroupsList);
-        }
         
         // Load bucket members dengan version checking (jika ada version key untuk ini)
         // Note: bucket_members mungkin tidak punya version key terpisah, gunakan 'bundle_promo_groups' atau buat key baru
@@ -1963,18 +1930,10 @@ async function loadProductsData() {
         
         // Load prices menggunakan zona user
         // Load prices dengan version checking (jika belum di-load sebelumnya)
-        let prices;
-        if (typeof window.AppStore !== 'undefined' && window.AppStore.getPrices(selectedZone).length > 0) {
-            prices = window.AppStore.getPrices(selectedZone);
-            logger.log(`Using cached prices for zone ${selectedZone}`);
-        } else {
-            const pricesResult = await syncCollectionData(`prices_${selectedZone}`, 'prices', () => loadPrices(selectedZone));
-            prices = pricesResult.data || [];
-            logger.log(`Loaded ${prices?.length || 0} prices for zone ${selectedZone} ${pricesResult.fromCache ? '(from cache)' : '(from server)'}`);
-            if (typeof window.AppStore !== 'undefined') {
-                window.AppStore.setPrices(selectedZone, prices);
-            }
-        }
+        // Load prices dengan version checking
+        const pricesResult = await syncCollectionData(`prices_${selectedZone}`, 'prices', () => loadPrices(selectedZone));
+        const prices = pricesResult.data || [];
+        logger.log(`Loaded ${prices?.length || 0} prices for zone ${selectedZone} ${pricesResult.fromCache ? '(from cache)' : '(from server)'}`);
         const priceMap = new Map();
         prices.forEach(price => {
             priceMap.set(price.product_code, price.base_price);
@@ -2023,18 +1982,10 @@ async function loadCalculationData(products) {
         principalDiscountTiers = principalResult.data || [];
         logger.log(`Loaded ${principalDiscountTiers?.length || 0} principal discount tiers ${principalResult.fromCache ? '(from cache)' : '(from server)'}`);
         
-        if (typeof window.AppStore !== 'undefined') {
-            window.AppStore.setPrincipalDiscountTiers(principalDiscountTiers);
-        }
-        
         // Load group promos dengan version checking
         const groupPromosResult = await syncCollectionData('group_promos', 'group_promos', loadGroupPromos);
         groupPromos = groupPromosResult.data || [];
         logger.log(`Loaded ${groupPromos?.length || 0} group promos ${groupPromosResult.fromCache ? '(from cache)' : '(from server)'}`);
-        
-        if (typeof window.AppStore !== 'undefined') {
-            window.AppStore.setGroupPromos(groupPromos);
-        }
         
         // Load group promo tiers dengan version checking dan filter berdasarkan promo yang available
         // Filter promo IDs yang available untuk user
@@ -2058,27 +2009,15 @@ async function loadCalculationData(products) {
         groupPromoTiers = groupTiersResult.data || [];
         logger.log(`Loaded ${groupPromoTiers?.length || 0} group promo tiers ${groupTiersResult.fromCache ? '(from cache)' : '(from server)'}${availablePromoIds.length > 0 ? ` (filtered by ${availablePromoIds.length} available promo IDs)` : ''}`);
         
-        if (typeof window.AppStore !== 'undefined') {
-            window.AppStore.setGroupPromoTiers(groupPromoTiers);
-        }
-        
         // Load invoice discounts dengan version checking
         const invoiceResult = await syncCollectionData('invoice_discounts', 'invoice_discounts', loadInvoiceDiscounts);
         invoiceDiscounts = invoiceResult.data || [];
         logger.log(`Loaded ${invoiceDiscounts?.length || 0} invoice discounts ${invoiceResult.fromCache ? '(from cache)' : '(from server)'}`);
         
-        if (typeof window.AppStore !== 'undefined') {
-            window.AppStore.setInvoiceDiscounts(invoiceDiscounts);
-        }
-        
         // Load free product promos dengan version checking
         const freeProductResult = await syncCollectionData('free_product_promos', 'free_product_promos', loadFreeProductPromos);
         freeProductPromos = freeProductResult.data || [];
         logger.log(`Loaded ${freeProductPromos?.length || 0} free product promos ${freeProductResult.fromCache ? '(from cache)' : '(from server)'}`);
-        
-        if (typeof window.AppStore !== 'undefined') {
-            window.AppStore.setFreeProductPromos(freeProductPromos);
-        }
         
         // Load free product promo tiers dengan version checking
         // NOTE: Tiers sementara dinonaktifkan, akan diaktifkan jika diperlukan
@@ -2087,10 +2026,6 @@ async function loadCalculationData(products) {
         // logger.log(`Loaded ${freeProductPromoTiers?.length || 0} free product promo tiers ${freeProductTiersResult.fromCache ? '(from cache)' : '(from server)'}`);
         freeProductPromoTiers = []; // Set empty untuk sementara
         
-        // if (typeof window.AppStore !== 'undefined') {
-        //     window.AppStore.setFreeProductPromoTiers(freeProductPromoTiers);
-        // }
-        
         // Load loyalty data dengan version checking
         const loyaltyClassesResult = await syncCollectionData('store_loyalty_classes', 'store_loyalty_classes', loadLoyaltyClasses);
         loyaltyClasses = loyaltyClassesResult.data || [];
@@ -2098,11 +2033,6 @@ async function loadCalculationData(products) {
         const loyaltyAvailabilityResult = await syncCollectionData('store_loyalty_availability', 'store_loyalty_availability', loadLoyaltyAvailability);
         loyaltyAvailabilityRules = loyaltyAvailabilityResult.data || [];
         logger.log(`Loaded ${loyaltyClasses?.length || 0} loyalty classes and ${loyaltyAvailabilityRules?.length || 0} availability rules ${loyaltyClassesResult.fromCache && loyaltyAvailabilityResult.fromCache ? '(from cache)' : '(from server)'}`);
-        
-        if (typeof window.AppStore !== 'undefined') {
-            window.AppStore.setLoyaltyClasses(loyaltyClasses);
-            window.AppStore.setLoyaltyAvailability(loyaltyAvailabilityRules);
-        }
         
         // Build principal map for products (only if products is provided)
         if (products && Array.isArray(products) && products.length > 0) {
@@ -4139,7 +4069,9 @@ function updateCalculationUpsellingRecommendations() {
             principalRecommendations.forEach(recommendation => {
                 const infoDiv = document.createElement('div');
                 infoDiv.className = 'upsell-info-direct';
-                infoDiv.innerHTML = `<span class="upsell-icon">💡</span> ${recommendation.message}`;
+                // Escape recommendation message untuk keamanan XSS
+                const messageEscaped = escapeHtml(recommendation.message);
+                infoDiv.innerHTML = `<span class="upsell-icon">💡</span> ${messageEscaped}`;
                 principalDiscountRow.closest('.calc-row').insertAdjacentElement('afterend', infoDiv);
             });
         }
@@ -4314,8 +4246,10 @@ function updateCalculationUpsellingRecommendations() {
                 );
                 
                 if (recommendation) {
-                    // Tambahkan promo ID di awal message untuk clarity
-                    const messageWithPromo = `<strong>Paket ${promo.promo_id}:</strong> ${recommendation.message}`;
+                    // Escape promo ID dan message untuk keamanan XSS
+                    const promoIdEscaped = escapeHtml(promo.promo_id);
+                    const messageEscaped = escapeHtml(recommendation.message);
+                    const messageWithPromo = `<strong>Paket ${promoIdEscaped}:</strong> ${messageEscaped}`;
                     bundleRecommendations.push({
                         promoId: promo.promo_id,
                         message: messageWithPromo
@@ -4377,7 +4311,9 @@ function updateCalculationUpsellingRecommendations() {
                 // Tampilkan langsung tanpa header (hanya informasi)
                 const infoDiv = document.createElement('div');
                 infoDiv.className = 'upsell-info-direct';
-                infoDiv.innerHTML = `<span class="upsell-icon">💡</span> ${recommendation.message}`;
+                // Escape recommendation message untuk keamanan XSS
+                const messageEscaped = escapeHtml(recommendation.message);
+                infoDiv.innerHTML = `<span class="upsell-icon">💡</span> ${messageEscaped}`;
                 invoiceDiscountRow.closest('.calc-row').insertAdjacentElement('afterend', infoDiv);
             }
         }
@@ -4552,27 +4488,30 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
             // Get bucket IDs for this promo from bundlePromoGroupsList
             const bucketIdsString = bundlePromoGroupsList
                 .filter(g => g.promo_id === promoId)
-                .map(g => g.bucket_id)
+                .map(g => escapeHtml(g.bucket_id))
                 .sort()
                 .join(', ');
             
+            // Escape promoId untuk keamanan XSS
+            const promoIdEscaped = escapeHtml(promoId);
+            
             // Format: Paket X (bucket 1, bucket 2)
             const shortDescription = bucketIdsString 
-                ? `Paket ${promoId} (${bucketIdsString})`
-                : `Paket ${promoId}`;
+                ? `Paket ${promoIdEscaped} (${bucketIdsString})`
+                : `Paket ${promoIdEscaped}`;
             
             // Promo level accordion (Level 1)
             const promoAccordionId = `promo-accordion-${accordionIndex}`;
             accordionIndex++;
             
             html += `
-                <div class="accordion-item" data-promo-id="${promoId}">
+                <div class="accordion-item" data-promo-id="${promoIdEscaped}">
                     <div class="accordion-header-wrapper" style="position: relative;">
                         <button class="accordion-header" onclick="toggleAccordion('${promoAccordionId}')" style="width: 100%;">
                             <span class="accordion-title">${shortDescription}</span>
                             <span class="accordion-icon" id="icon-${promoAccordionId}">▼</span>
                         </button>
-                        <button class="btn-promo-info" onclick="showBundlePromoModal('${promoId}'); event.stopPropagation();" title="Info Promo" style="position: absolute; right: 40px; top: 50%; transform: translateY(-50%); background: #007bff; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; z-index: 10;">🎁</button>
+                        <button class="btn-promo-info" onclick="showBundlePromoModal('${promoIdEscaped}'); event.stopPropagation();" title="Info Promo" style="position: absolute; right: 40px; top: 50%; transform: translateY(-50%); background: #007bff; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; z-index: 10;">🎁</button>
                     </div>
                     <div class="accordion-content" id="${promoAccordionId}">
             `;
@@ -4583,14 +4522,17 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
             sortedBucketIds.forEach(bucketId => {
                 const productIds = buckets.get(bucketId);
                 
+                // Escape bucketId untuk keamanan XSS
+                const bucketIdEscaped = escapeHtml(bucketId);
+                
                 // Bucket level accordion (Level 2 - nested)
                 const bucketAccordionId = `bucket-accordion-${accordionIndex}`;
                 accordionIndex++;
                 
                 html += `
-                    <div class="accordion-item" data-promo-id="${promoId}" data-bucket-id="${bucketId}" style="margin-left: 0; margin-top: 0; border-left: none;">
+                    <div class="accordion-item" data-promo-id="${promoIdEscaped}" data-bucket-id="${bucketIdEscaped}" style="margin-left: 0; margin-top: 0; border-left: none;">
                         <button class="accordion-header" onclick="toggleAccordion('${bucketAccordionId}')" style="background: #e2e6ea; font-size: 0.85em; font-weight: bold; color: #343a40;">
-                            <span class="accordion-title">${bucketId}</span>
+                            <span class="accordion-title">${bucketIdEscaped}</span>
                             <span class="accordion-icon" id="icon-${bucketAccordionId}">▼</span>
                         </button>
                         <div class="accordion-content" id="${bucketAccordionId}">
@@ -4635,37 +4577,43 @@ function renderProducts(productGroups, groupMap, priceMap, allProducts) {
                         }).format(roundedAmount);
                     };
                     
+                    // Escape product data untuk keamanan XSS
+                    const productCodeEscaped = escapeHtml(product.code);
+                    const productNameEscaped = escapeHtml(product.name);
+                    const unitKrtEscaped = escapeHtml(unitKrt);
+                    const unitBoxEscaped = escapeHtml(unitBox);
+                    
                     html += `
-                        <div class="product-item" data-product-id="${product.code}">
+                        <div class="product-item" data-product-id="${productCodeEscaped}">
                             <div class="product-info">
-                                <strong>${product.code} - ${product.name}</strong>
+                                <strong>${productCodeEscaped} - ${productNameEscaped}</strong>
                                 <p class="price-info">
-                                    ${priceFormatted}/${unitKrt} | ${boxPerKrt} ${unitBox}/${unitKrt}
+                                    ${priceFormatted}/${unitKrtEscaped} | ${boxPerKrt} ${unitBoxEscaped}/${unitKrtEscaped}
                                 </p>
                             </div>
                             <div class="quantity-controls input-qty">
-                                <button class="btn-qty btn-minus" data-unit="krt" data-action="minus" data-product-id="${product.code}">-</button>
-                                <input type="tel" value="${vKrt}" min="0" class="qty-input input-krt ${krtClass}" data-unit="krt" data-product-id="${product.code}">
-                                <button class="btn-qty btn-plus" data-unit="krt" data-action="plus" data-product-id="${product.code}">+</button>
-                                <button class="btn-qty btn-minus" data-unit="box" data-action="minus" data-product-id="${product.code}" style="margin-left:8px;">-</button>
-                                <input type="tel" value="${vBox}" min="0" class="qty-input input-box ${boxClass}" data-unit="box" data-product-id="${product.code}">
-                                <button class="btn-qty btn-plus" data-unit="box" data-action="plus" data-product-id="${product.code}">+</button>
+                                <button class="btn-qty btn-minus" data-unit="krt" data-action="minus" data-product-id="${productCodeEscaped}">-</button>
+                                <input type="tel" value="${vKrt}" min="0" class="qty-input input-krt ${krtClass}" data-unit="krt" data-product-id="${productCodeEscaped}">
+                                <button class="btn-qty btn-plus" data-unit="krt" data-action="plus" data-product-id="${productCodeEscaped}">+</button>
+                                <button class="btn-qty btn-minus" data-unit="box" data-action="minus" data-product-id="${productCodeEscaped}" style="margin-left:8px;">-</button>
+                                <input type="tel" value="${vBox}" min="0" class="qty-input input-box ${boxClass}" data-unit="box" data-product-id="${productCodeEscaped}">
+                                <button class="btn-qty btn-plus" data-unit="box" data-action="plus" data-product-id="${productCodeEscaped}">+</button>
                             </div>
-                            <div class="nett-summary product-card-pricing" data-product-pricing="${product.code}" style="display:${hasQty ? 'block' : 'none'};">
+                            <div class="nett-summary product-card-pricing" data-product-pricing="${productCodeEscaped}" style="display:${hasQty ? 'block' : 'none'};">
                                 <div class="nett-item">
                                     <span class="nett-label">Subtotal Nett (On Faktur):</span>
-                                    <span class="nett-value" id="subtotal-${product.code}">${formatCurrency(0)}</span>
+                                    <span class="nett-value" id="subtotal-${productCodeEscaped}">${formatCurrency(0)}</span>
                                 </div>
                                 <div class="nett-item">
                                     <span class="nett-label">Harga Nett/Krt (On Faktur):</span>
-                                    <span class="nett-value" id="harganett-${product.code}">${formatCurrency(0)}</span>
+                                    <span class="nett-value" id="harganett-${productCodeEscaped}">${formatCurrency(0)}</span>
                                 </div>
                                 <div class="nett-item" style="border-top: 1px dashed #ddd; padding-top: 5px;">
                                     <span class="nett-label" style="font-weight: 500; color: var(--success-color, #28a745);">Simulasi Nett/Krt (Setelah Reward):</span>
-                                    <span class="nett-value" id="simulasi-nett-${product.code}" style="color: var(--success-color, #28a745);">${formatCurrency(0)}</span>
+                                    <span class="nett-value" id="simulasi-nett-${productCodeEscaped}" style="color: var(--success-color, #28a745);">${formatCurrency(0)}</span>
                                 </div>
                                 <div class="nett-item" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd;">
-                                    <button class="btn-detail-harga" data-product-id="${product.code}" style="width: 100%; padding: 6px; font-size: 0.85em; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Lihat Detail Harga</button>
+                                    <button class="btn-detail-harga" data-product-id="${productCodeEscaped}" style="width: 100%; padding: 6px; font-size: 0.85em; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Lihat Detail Harga</button>
                                 </div>
                             </div>
                         </div>
@@ -5067,12 +5015,6 @@ function saveCartToLocalStorage() {
             localStorage.removeItem(storageKey);
         }
         
-        // Also update AppStore if available
-        if (typeof window.AppStore !== 'undefined') {
-            cartArray.forEach(([productId, item]) => {
-                window.AppStore.updateCart(productId, item);
-            });
-        }
     } catch (error) {
         logger.error('Error saving cart to localStorage:', error);
     }
@@ -5112,13 +5054,6 @@ function loadCartFromLocalStorage() {
                 cart.set(productId, item);
             });
             logger.log(`Loaded ${cart.size} items from cart cache for user ${currentUser.kode_sales}`);
-            
-            // Also update AppStore if available
-            if (typeof window.AppStore !== 'undefined') {
-                cartArray.forEach(([productId, item]) => {
-                    window.AppStore.updateCart(productId, item);
-                });
-            }
             
             return true;
         }
