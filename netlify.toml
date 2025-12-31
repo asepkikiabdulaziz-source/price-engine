@@ -4,7 +4,7 @@
 [build]
   # Tidak perlu build command karena static site
   # Jika menggunakan build script, uncomment baris di bawah:
-  # command = "npm run build"
+  command = "npm run build"
   publish = "/"
   # Base directory (jika project di subfolder)
   # base = ""
