@@ -17,8 +17,7 @@ const REQUIRED_FILES = [
     'style.css',
     'sw.js',
     'manifest.json',
-    'package.json',
-    'js/store.js'
+    'package.json'
 ];
 
 // netlify.toml akan dibuat khusus untuk deploy manual (tanpa build command)
