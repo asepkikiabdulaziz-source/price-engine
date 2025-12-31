@@ -26,7 +26,7 @@
     # Content Security Policy - Enhanced security
     # Note: 'unsafe-inline' diperlukan untuk beberapa inline scripts/styles
     # Consider using nonces atau hashes untuk lebih secure di future
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://dthgezcoklarfwbzkqym.supabase.co; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://dthgezcoklarfwbzkqym.supabase.co https://*.supabase.co; frame-ancestors 'none';"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://dthgezcoklarfwbzkqym.supabase.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://cdn.jsdelivr.net https://dthgezcoklarfwbzkqym.supabase.co https://*.supabase.co; frame-ancestors 'none';"
 
 # Headers khusus untuk service worker
 [[headers]]
