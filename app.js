@@ -124,13 +124,23 @@ function setupEventListeners() {
     // Login form
     const loginForm = document.getElementById('login-form');
     if (loginForm) {
+        // Remove existing listener jika ada untuk prevent duplicate
+        loginForm.removeEventListener('submit', handleLogin);
         loginForm.addEventListener('submit', handleLogin);
     }
     
     // Region dropdown change - load depos
+    // Gunakan event delegation atau pastikan hanya attach sekali
     const regionSelect = document.getElementById('region');
     if (regionSelect) {
+        // Remove existing listener jika ada untuk prevent duplicate
+        regionSelect.removeEventListener('change', handleRegionChange);
         regionSelect.addEventListener('change', handleRegionChange);
+        
+        // Pastikan dropdown enabled dan bisa di-interact
+        regionSelect.disabled = false;
+        regionSelect.style.pointerEvents = 'auto';
+        regionSelect.style.opacity = '1';
     }
     
     // Logout button
@@ -153,11 +163,17 @@ function setupEventListeners() {
     // Tab navigation
     setupTabNavigation();
     
+    // Pastikan summary bar dan cart sidebar terlihat di tab Order (default)
+    // Karena tab-simulasi adalah tab default yang aktif
+    // Tapi kita akan set visibility berdasarkan tab aktif setelah setupTabNavigation
+    // Jadi tidak perlu set di sini, biarkan setupTabNavigation yang handle
+    
     // Summary bar toggle (mobile)
     const summaryBar = document.getElementById('summary-bar');
+    const cartSidebar = document.getElementById('cart-sidebar');
     if (summaryBar) {
         // Ensure cart sidebar is closed by default (no cart-visible class)
-        const cartSidebar = document.getElementById('cart-sidebar');
+        // cartSidebar sudah dideklarasikan di atas
         if (cartSidebar) {
             cartSidebar.classList.remove('cart-visible');
         }
@@ -168,7 +184,7 @@ function setupEventListeners() {
         }
         
         summaryBar.addEventListener('click', () => {
-            const cartSidebar = document.getElementById('cart-sidebar');
+            // cartSidebar sudah dideklarasikan di atas
             if (cartSidebar) {
                 cartSidebar.classList.toggle('cart-visible');
                 // Update arrow direction
@@ -184,8 +200,7 @@ function setupEventListeners() {
     const closeCartBtn = document.getElementById('close-cart-btn');
     if (closeCartBtn) {
         closeCartBtn.addEventListener('click', () => {
-            const cartSidebar = document.getElementById('cart-sidebar');
-            const summaryBar = document.getElementById('summary-bar');
+            // cartSidebar dan summaryBar sudah dideklarasikan di atas
             if (cartSidebar) {
                 cartSidebar.classList.remove('cart-visible');
             }
@@ -305,6 +320,50 @@ function setupEventListeners() {
 function setupTabNavigation() {
     const navTabs = document.querySelectorAll('.nav-tab');
     
+    // Function to update summary bar visibility based on active tab
+    const updateSummaryBarVisibility = () => {
+        const activeTab = document.querySelector('.nav-tab.active');
+        const targetTabId = activeTab ? activeTab.getAttribute('data-tab') : 'tab-simulasi';
+        
+        const summaryBar = document.getElementById('summary-bar');
+        const cartSidebar = document.getElementById('cart-sidebar');
+        
+        if (targetTabId === 'tab-simulasi') {
+            // Tab Order: Tampilkan summary bar dan cart sidebar
+            if (summaryBar) {
+                summaryBar.style.display = 'block';
+                summaryBar.style.visibility = 'visible';
+                summaryBar.style.opacity = '1';
+                summaryBar.classList.remove('hidden');
+                summaryBar.classList.add('visible');
+            }
+            if (cartSidebar) {
+                cartSidebar.style.display = 'block';
+                cartSidebar.style.visibility = 'visible';
+                cartSidebar.classList.remove('hidden');
+            }
+        } else {
+            // Tab lain (Promosi, KPI): Sembunyikan summary bar dan cart sidebar
+            if (summaryBar) {
+                summaryBar.style.display = 'none';
+                summaryBar.style.visibility = 'hidden';
+                summaryBar.style.opacity = '0';
+                summaryBar.classList.add('hidden');
+                summaryBar.classList.remove('visible');
+            }
+            if (cartSidebar) {
+                cartSidebar.style.display = 'none';
+                cartSidebar.style.visibility = 'hidden';
+                cartSidebar.classList.add('hidden');
+                // Pastikan cart sidebar ditutup saat pindah tab
+                cartSidebar.classList.remove('cart-visible');
+            }
+        }
+    };
+    
+    // Set initial visibility based on default active tab
+    updateSummaryBarVisibility();
+    
     navTabs.forEach(tab => {
         tab.addEventListener('click', () => {
             const targetTabId = tab.getAttribute('data-tab');
@@ -319,6 +378,9 @@ function setupTabNavigation() {
             if (targetPane) {
                 targetPane.classList.add('active');
             }
+            
+            // Update summary bar visibility
+            updateSummaryBarVisibility();
             
             // Load promos data when promosi tab is clicked
             // Use setTimeout to ensure DOM is updated before accessing container
@@ -413,10 +475,21 @@ async function loadRegionsForLogin() {
         }
         
         // Clear existing options (except first option)
-        regionSelect.innerHTML = '<option value="">Pilih Region</option>';
+        // Gunakan removeChild untuk preserve event listeners (lebih aman dari innerHTML)
+        while (regionSelect.firstChild) {
+            regionSelect.removeChild(regionSelect.firstChild);
+        }
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = 'Pilih Region';
+        regionSelect.appendChild(defaultOption);
         
-        // Ensure region select is enabled (important for mobile after refresh)
+        // Ensure region select is enabled dan bisa di-interact (important for mobile after refresh)
         regionSelect.disabled = false;
+        regionSelect.style.pointerEvents = 'auto';
+        regionSelect.style.opacity = '1';
+        regionSelect.removeAttribute('readonly');
+        regionSelect.removeAttribute('tabindex');
         
         if (!regions || regions.length === 0) {
             logger.warn('No regions found!');
@@ -438,15 +511,31 @@ async function loadRegionsForLogin() {
         
         // Ensure region select is enabled after populating (extra safety for mobile)
         regionSelect.disabled = false;
+        regionSelect.style.pointerEvents = 'auto';
+        regionSelect.style.opacity = '1';
+        regionSelect.removeAttribute('readonly');
+        regionSelect.removeAttribute('tabindex');
         
         logger.log(`Successfully populated ${regions.length} regions in dropdown`);
     } catch (error) {
         logger.error('Error loading regions:', error);
         const regionSelect = document.getElementById('region');
         if (regionSelect) {
-            regionSelect.innerHTML = '<option value="">Error loading regions - Silakan refresh</option>';
+            // Clear dan set error message
+            while (regionSelect.firstChild) {
+                regionSelect.removeChild(regionSelect.firstChild);
+            }
+            const errorOption = document.createElement('option');
+            errorOption.value = '';
+            errorOption.textContent = 'Error loading regions - Silakan refresh';
+            regionSelect.appendChild(errorOption);
+            
             // Ensure it's still enabled even on error (so user can try again)
             regionSelect.disabled = false;
+            regionSelect.style.pointerEvents = 'auto';
+            regionSelect.style.opacity = '1';
+            regionSelect.removeAttribute('readonly');
+            regionSelect.removeAttribute('tabindex');
         }
     }
 }
@@ -539,6 +628,35 @@ async function handleLogin(e) {
                 region_name: user.region_name,
                 zona: user.zona
             });
+            
+            // Cek apakah user berbeda dari user sebelumnya (jika ada)
+            const previousUserStr = localStorage.getItem('price_engine_user_session');
+            let previousUser = null;
+            if (previousUserStr) {
+                try {
+                    previousUser = JSON.parse(previousUserStr);
+                } catch (e) {
+                    logger.warn('Error parsing previous user session:', e);
+                }
+            }
+            
+            // Jika user berbeda, clear cart untuk mencegah data leakage antar user
+            if (previousUser && (previousUser.depo_id !== user.depo_id || previousUser.kode_sales !== user.kode_sales)) {
+                logger.log('Different user detected, clearing previous cart...', {
+                    previous: { depo_id: previousUser.depo_id, kode_sales: previousUser.kode_sales },
+                    current: { depo_id: user.depo_id, kode_sales: user.kode_sales }
+                });
+                // Clear cart di memory
+                if (typeof cart !== 'undefined' && cart) {
+                    cart.clear();
+                }
+                // Clear cart storage untuk user sebelumnya
+                if (previousUser.depo_id && previousUser.kode_sales) {
+                    const previousCartKey = getCartStorageKeyForUser(previousUser.depo_id, previousUser.kode_sales);
+                    localStorage.removeItem(previousCartKey);
+                }
+            }
+            
             localStorage.setItem('price_engine_user_session', JSON.stringify(user));
             currentUser = user;
             
@@ -557,24 +675,108 @@ async function handleLogin(e) {
     }
 }
 
-async function handleLogout() {
+/**
+ * Clear all user-specific data, but keep master data and static assets for offline-first
+ * Dipanggil saat logout untuk memastikan data user tidak terlihat, tapi tetap support offline
+ */
+async function clearAllApplicationData() {
     try {
-        await logout();
-        currentUser = null;
+        logger.log('Clearing user-specific data (keeping master data for offline-first)...');
         
-        // Force clear all app state
-        // Clear cart if exists
+        // 1. Clear cart di memory
         if (typeof cart !== 'undefined' && cart) {
             cart.clear();
         }
         
-        // Force reload page untuk memastikan semua state reset dengan benar
+        // 2. Clear AppStore cart jika ada
+        if (typeof window.AppStore !== 'undefined' && window.AppStore.clearCart) {
+            window.AppStore.clearCart();
+        }
+        
+        // 3. Clear hanya user-specific localStorage (BUKAN master data)
+        const localStorageKeysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key) {
+                // Hapus hanya user-specific data:
+                // - User session
+                // - Cart per user
+                // - Cache user-specific lainnya
+                if (
+                    key === 'price_engine_user_session' ||
+                    key.startsWith('price_engine_cart_v1_') ||
+                    (key.startsWith('price_engine_') && !key.startsWith('price_engine_master_'))
+                ) {
+                    localStorageKeysToRemove.push(key);
+                }
+                // PERTAHANKAN:
+                // - price_engine_master_* (master data untuk offline)
+                // - version_* (version info untuk master data)
+            }
+        }
+        localStorageKeysToRemove.forEach(key => {
+            localStorage.removeItem(key);
+            logger.log(`Removed user-specific localStorage key: ${key}`);
+        });
+        
+        // 4. Clear sessionStorage (user-specific)
+        try {
+            sessionStorage.clear();
+            logger.log('Cleared sessionStorage');
+        } catch (e) {
+            logger.warn('Error clearing sessionStorage:', e);
+        }
+        
+        // 5. PERTAHANKAN Service Worker cache (untuk offline-first)
+        // Service Worker cache berisi static assets (HTML, CSS, JS) yang tidak user-specific
+        // Tidak perlu dihapus karena sama untuk semua user
+        logger.log('Keeping Service Worker cache for offline-first functionality');
+        
+        // 6. PERTAHANKAN Service Worker registration (untuk offline-first)
+        logger.log('Keeping Service Worker registration for offline-first functionality');
+        
+        // 7. Clear IndexedDB hanya jika berisi user-specific data
+        // Jika IndexedDB hanya berisi master data, bisa dipertahankan
+        if ('indexedDB' in window) {
+            try {
+                const databases = await indexedDB.databases();
+                // Hanya hapus jika ada database yang jelas user-specific
+                // Untuk saat ini, kita skip karena tidak ada user-specific IndexedDB
+                logger.log(`Found ${databases.length} IndexedDB database(s) - keeping for offline-first`);
+            } catch (e) {
+                logger.warn('Error checking IndexedDB:', e);
+            }
+        }
+        
+        logger.log('User-specific data cleared, master data retained for offline-first');
+    } catch (error) {
+        logger.error('Error clearing application data:', error);
+        // Continue dengan logout meskipun ada error
+    }
+}
+
+async function handleLogout() {
+    try {
+        await logout();
+        
+        // Clear semua data aplikasi, cache, dan storage
+        await clearAllApplicationData();
+        
+        currentUser = null;
+        
+        // Force reload page dengan cache bypass untuk memastikan semua state reset dengan benar
         // Ini lebih reliable daripada reset manual, terutama di mobile
-        window.location.reload();
+        // Gunakan location.replace untuk mencegah back button kembali ke halaman sebelumnya
+        window.location.replace(window.location.origin + window.location.pathname);
     } catch (error) {
         logger.error('Logout error:', error);
-        // Even if logout fails, try to reload
-        window.location.reload();
+        // Even if logout fails, try to clear data and reload
+        try {
+            await clearAllApplicationData();
+        } catch (clearError) {
+            logger.error('Error clearing data during logout:', clearError);
+        }
+        window.location.replace(window.location.origin + window.location.pathname);
     }
 }
 
@@ -592,8 +794,20 @@ function showLogin() {
     const regionSelect = document.getElementById('region');
     if (regionSelect) {
         regionSelect.disabled = false;
+        regionSelect.style.pointerEvents = 'auto';
+        regionSelect.style.opacity = '1';
+        regionSelect.removeAttribute('readonly');
+        regionSelect.removeAttribute('tabindex');
         regionSelect.value = '';
-        regionSelect.innerHTML = '<option value="">Pilih Region</option>';
+        
+        // Clear options dengan cara yang aman (preserve event listeners)
+        while (regionSelect.firstChild) {
+            regionSelect.removeChild(regionSelect.firstChild);
+        }
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = 'Pilih Region';
+        regionSelect.appendChild(defaultOption);
     }
     
     // Reset depo dropdown - disabled dan kosong
@@ -679,33 +893,37 @@ async function showWelcomeMessage() {
         const serverVersions = await getMasterVersion();
         
         // Get local versions dari localStorage
+        // Key harus sesuai dengan versionKey yang digunakan di syncCollectionData()
         const localVersions = {};
         const versionKeys = [
-            'master_products',
-            'master_prices',
-            'master_product_groups',
-            'master_regions',
-            'master_depos',
-            'master_promo_availability',
-            'master_principal_discount_tiers',
-            'master_group_promos',
-            'master_group_promo_tiers',
-            'master_bundle_promos',
-            'master_bundle_promo_groups',
-            'master_invoice_discounts',
-            'master_free_product_promos',
-            'master_loyalty_classes',
-            'master_loyalty_availability'
+            { key: 'master_products', displayName: 'Products' },
+            { key: 'prices', displayName: 'Prices' },
+            { key: 'product_groups', displayName: 'Product Groups' },
+            { key: 'product_group_availability', displayName: 'Product Group Availability' },
+            { key: 'product_group_members', displayName: 'Product Group Members' },
+            { key: 'promo_availability', displayName: 'Promo Availability' },
+            { key: 'principal_discount_tiers', displayName: 'Principal Discount Tiers' },
+            { key: 'group_promos', displayName: 'Group Promos' },
+            { key: 'group_promo_tiers', displayName: 'Group Promo Tiers' },
+            { key: 'bundle_promos', displayName: 'Bundle Promos' },
+            { key: 'bundle_promo_groups', displayName: 'Bundle Promo Groups' },
+            { key: 'invoice_discounts', displayName: 'Invoice Discounts' },
+            { key: 'free_product_promos', displayName: 'Free Product Promos' },
+            { key: 'store_loyalty_classes', displayName: 'Loyalty Classes' },
+            { key: 'store_loyalty_availability', displayName: 'Loyalty Availability' }
         ];
         
-        versionKeys.forEach(key => {
+        versionKeys.forEach(({ key, displayName }) => {
             const localVersion = parseInt(localStorage.getItem(`version_${key}`)) || 0;
             const serverVersion = serverVersions[key] || 0;
+            const isSyncing = localStorage.getItem(`syncing_${key}`) === 'true';
             localVersions[key] = {
                 local: localVersion,
                 server: serverVersion,
                 synced: localVersion === serverVersion && localVersion > 0,
-                needsUpdate: localVersion > 0 && localVersion !== serverVersion
+                needsUpdate: localVersion > 0 && localVersion !== serverVersion,
+                displayName: displayName,
+                isSyncing: isSyncing
             };
         });
         
@@ -719,24 +937,61 @@ async function showWelcomeMessage() {
         const needsUpdate = [];
         const notCached = [];
         
-        versionKeys.forEach(key => {
+        versionKeys.forEach(({ key, displayName }) => {
             const info = localVersions[key];
-            const displayName = key.replace('master_', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
             
-            if (info.synced) {
-                synced.push({ name: displayName, version: info.local });
+            if (info.isSyncing) {
+                // Tampilkan sebagai syncing dengan progress indicator
+                needsUpdate.push({ 
+                    name: displayName, 
+                    local: info.local, 
+                    server: info.server,
+                    isSyncing: true 
+                });
+            } else if (info.synced) {
+                synced.push({ 
+                    name: displayName, 
+                    version: info.local,
+                    server: info.server 
+                });
             } else if (info.needsUpdate) {
-                needsUpdate.push({ name: displayName, local: info.local, server: info.server });
+                needsUpdate.push({ 
+                    name: displayName, 
+                    local: info.local, 
+                    server: info.server,
+                    isSyncing: false 
+                });
             } else {
-                notCached.push({ name: displayName, version: info.server });
+                notCached.push({ 
+                    name: displayName, 
+                    version: info.server,
+                    local: 0 
+                });
             }
         });
         
-        // Tampilkan yang perlu update dulu
-        if (needsUpdate.length > 0) {
+        // Tampilkan yang sedang sync dengan progress indicator
+        const syncingItems = needsUpdate.filter(item => item.isSyncing);
+        if (syncingItems.length > 0) {
+            html += '<div class="version-status-group syncing">';
+            html += '<div class="version-status-title">⏳ Sedang Download:</div>';
+            syncingItems.forEach(item => {
+                html += `<div class="version-item syncing">
+                    <span class="version-name">${escapeHtml(item.name)}</span>
+                    <span class="version-badge syncing">
+                        <span class="spinner"></span> v${item.local || 0} → v${item.server}
+                    </span>
+                </div>`;
+            });
+            html += '</div>';
+        }
+        
+        // Tampilkan yang perlu update (tidak sedang sync)
+        const updateItems = needsUpdate.filter(item => !item.isSyncing);
+        if (updateItems.length > 0) {
             html += '<div class="version-status-group needs-update">';
             html += '<div class="version-status-title">🔄 Perlu Update:</div>';
-            needsUpdate.forEach(item => {
+            updateItems.forEach(item => {
                 html += `<div class="version-item">
                     <span class="version-name">${escapeHtml(item.name)}</span>
                     <span class="version-badge update">v${item.local} → v${item.server}</span>
@@ -745,27 +1000,30 @@ async function showWelcomeMessage() {
             html += '</div>';
         }
         
-        // Tampilkan yang sudah sync
+        // Tampilkan yang sudah sync dengan perbandingan versi
         if (synced.length > 0) {
             html += '<div class="version-status-group synced">';
             html += '<div class="version-status-title">✅ Tersinkronisasi:</div>';
             synced.forEach(item => {
+                const versionText = item.server === item.version 
+                    ? `v${item.version}` 
+                    : `v${item.version} (DB: v${item.server})`;
                 html += `<div class="version-item">
                     <span class="version-name">${escapeHtml(item.name)}</span>
-                    <span class="version-badge synced">v${item.version}</span>
+                    <span class="version-badge synced">${versionText}</span>
                 </div>`;
             });
             html += '</div>';
         }
         
-        // Tampilkan yang belum di-cache
+        // Tampilkan yang belum di-cache dengan versi DB
         if (notCached.length > 0) {
             html += '<div class="version-status-group not-cached">';
             html += '<div class="version-status-title">📥 Belum Di-cache:</div>';
             notCached.forEach(item => {
                 html += `<div class="version-item">
                     <span class="version-name">${escapeHtml(item.name)}</span>
-                    <span class="version-badge not-cached">v${item.version}</span>
+                    <span class="version-badge not-cached">Lokal: v${item.local || 0} | DB: v${item.version}</span>
                 </div>`;
             });
             html += '</div>';
@@ -1066,6 +1324,9 @@ async function loadAppContent() {
             renderKeranjang();
             handleCalculate();
         }
+        
+        // Update welcome message setelah data ter-sync untuk menampilkan versi yang benar
+        showWelcomeMessage();
     } catch (error) {
         logger.error('Error loading app content:', error);
         showError('Gagal memuat data. Silakan refresh halaman.');
@@ -2015,7 +2276,7 @@ function renderPromos(promos, promoAvailabilityRules = [], currentUser = null) {
             <span class="accordion-title">📊 Pot. Strata</span>
             <span class="accordion-count">(${promos.strata.length} promo)</span>
         </div>`;
-        html += '<div class="accordion-content promo-accordion-content expanded" style="max-height: 5000px !important; padding: 2px 5px !important; display: block !important;">';
+        html += '<div class="accordion-content promo-accordion-content expanded" style="padding: 2px 5px;">';
         html += '<div class="promo-list strata-promo-list">';
         promos.strata.forEach(promo => {
             const promoId = escapeHtml(promo.promo_id);
@@ -2275,13 +2536,19 @@ window.togglePromoAccordion = function(header) {
     if (isExpanded) {
         // Collapse
         content.classList.remove('expanded');
+        content.style.display = 'none';
+        content.style.maxHeight = '0';
         toggle.textContent = isStrataPromo ? '▶' : '▼';
         accordionItem.classList.remove('expanded');
+        header.classList.remove('expanded');
     } else {
         // Expand
         content.classList.add('expanded');
+        content.style.display = 'block';
+        content.style.maxHeight = '5000px';
         toggle.textContent = isStrataPromo ? '▼' : '▲';
         accordionItem.classList.add('expanded');
+        header.classList.add('expanded');
     }
     
     logger.log('Toggle promo accordion:', {
@@ -4477,20 +4744,76 @@ let cart = new Map();
 // Product data map for cart display (product code -> product data)
 let productDataMap = new Map();
 
-// Cart persistence keys
-const CART_STORAGE_KEY = 'price_engine_cart_v1';
+// Cart persistence keys - dengan user identifier untuk isolasi data per user
+function getCartStorageKey() {
+    if (!currentUser || !currentUser.depo_id || !currentUser.kode_sales) {
+        // Fallback ke key default jika belum login (tidak seharusnya terjadi)
+        return 'price_engine_cart_v1_default';
+    }
+    // Gunakan depo_id dan kode_sales sebagai identifier unik per user
+    return `price_engine_cart_v1_${currentUser.depo_id}_${currentUser.kode_sales}`;
+}
 
 /**
- * Save cart to localStorage
+ * Get cart storage key for a specific user (untuk validasi)
+ */
+function getCartStorageKeyForUser(depoId, kodeSales) {
+    if (!depoId || !kodeSales) {
+        return 'price_engine_cart_v1_default';
+    }
+    return `price_engine_cart_v1_${depoId}_${kodeSales}`;
+}
+
+/**
+ * Clear cart for all users (untuk cleanup saat logout atau user switch)
+ */
+function clearAllCartStorage() {
+    try {
+        // Clear cart untuk user saat ini
+        const currentKey = getCartStorageKey();
+        localStorage.removeItem(currentKey);
+        
+        // Clear semua cart storage yang mungkin ada (cleanup)
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('price_engine_cart_v1_')) {
+                keysToRemove.push(key);
+            }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+        
+        logger.log('Cleared all cart storage');
+    } catch (error) {
+        logger.error('Error clearing cart storage:', error);
+    }
+}
+
+/**
+ * Save cart to localStorage dengan user identifier
  */
 function saveCartToLocalStorage() {
     try {
+        if (!currentUser || !currentUser.depo_id || !currentUser.kode_sales) {
+            logger.warn('Cannot save cart: user not logged in');
+            return;
+        }
+        
         const cartArray = Array.from(cart.entries());
+        const storageKey = getCartStorageKey();
+        
         if (cartArray.length > 0) {
-            localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cartArray));
-            logger.log(`Saved ${cartArray.length} items to cart cache`);
+            // Simpan dengan metadata user untuk validasi
+            const cartData = {
+                depo_id: currentUser.depo_id,
+                kode_sales: currentUser.kode_sales,
+                timestamp: Date.now(),
+                items: cartArray
+            };
+            localStorage.setItem(storageKey, JSON.stringify(cartData));
+            logger.log(`Saved ${cartArray.length} items to cart cache for user ${currentUser.kode_sales}`);
         } else {
-            localStorage.removeItem(CART_STORAGE_KEY);
+            localStorage.removeItem(storageKey);
         }
         
         // Also update AppStore if available
@@ -4505,18 +4828,39 @@ function saveCartToLocalStorage() {
 }
 
 /**
- * Load cart from localStorage
+ * Load cart from localStorage dengan validasi user
  */
 function loadCartFromLocalStorage() {
     try {
-        const storedCart = localStorage.getItem(CART_STORAGE_KEY);
+        if (!currentUser || !currentUser.depo_id || !currentUser.kode_sales) {
+            logger.warn('Cannot load cart: user not logged in');
+            return false;
+        }
+        
+        const storageKey = getCartStorageKey();
+        const storedCart = localStorage.getItem(storageKey);
+        
         if (storedCart) {
-            const cartArray = JSON.parse(storedCart);
+            const cartData = JSON.parse(storedCart);
+            
+            // Validasi: pastikan cart milik user yang sedang login
+            if (cartData.depo_id !== currentUser.depo_id || cartData.kode_sales !== currentUser.kode_sales) {
+                logger.warn('Cart belongs to different user, clearing...', {
+                    stored: { depo_id: cartData.depo_id, kode_sales: cartData.kode_sales },
+                    current: { depo_id: currentUser.depo_id, kode_sales: currentUser.kode_sales }
+                });
+                localStorage.removeItem(storageKey);
+                cart.clear();
+                return false;
+            }
+            
+            // Load items dari cart data
+            const cartArray = cartData.items || [];
             cart.clear();
             cartArray.forEach(([productId, item]) => {
                 cart.set(productId, item);
             });
-            logger.log(`Loaded ${cart.size} items from cart cache`);
+            logger.log(`Loaded ${cart.size} items from cart cache for user ${currentUser.kode_sales}`);
             
             // Also update AppStore if available
             if (typeof window.AppStore !== 'undefined') {
@@ -4530,7 +4874,11 @@ function loadCartFromLocalStorage() {
         return false;
     } catch (error) {
         logger.error('Error loading cart from localStorage:', error);
-        localStorage.removeItem(CART_STORAGE_KEY);
+        // Clear corrupted cart data
+        if (currentUser) {
+            const storageKey = getCartStorageKey();
+            localStorage.removeItem(storageKey);
+        }
         return false;
     }
 }

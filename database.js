@@ -1172,11 +1172,19 @@ export async function syncCollectionData(collectionName, versionKey, loadFunctio
                 logger.log(`📥 ${collectionName} (v${serverVersion}): Unduh Pertama`);
             }
             
-            dbData = await loadFunction();
+            // Set syncing flag
+            localStorage.setItem(`syncing_${versionKey}`, 'true');
             
-            // Simpan ke localStorage
-            localStorage.setItem(DATA_KEY, JSON.stringify(dbData));
-            localStorage.setItem(`version_${versionKey}`, serverVersion.toString());
+            try {
+                dbData = await loadFunction();
+                
+                // Simpan ke localStorage
+                localStorage.setItem(DATA_KEY, JSON.stringify(dbData));
+                localStorage.setItem(`version_${versionKey}`, serverVersion.toString());
+            } finally {
+                // Clear syncing flag
+                localStorage.removeItem(`syncing_${versionKey}`);
+            }
             
             return { 
                 data: dbData, 
