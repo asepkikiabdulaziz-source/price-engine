@@ -1,6 +1,7 @@
 // Database Operations using Supabase
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './env.js';
+import { logger } from './logger.js';
 
 // Initialize supabase client for database operations
 // Note: We create our own instance here to ensure it's initialized
@@ -32,7 +33,7 @@ export async function loadProducts() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading products:', error);
+        logger.error('Error loading products:', error);
         throw error;
     }
 }
@@ -54,7 +55,7 @@ export async function loadPrices(zoneCode) {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading prices:', error);
+        logger.error('Error loading prices:', error);
         throw error;
     }
 }
@@ -73,7 +74,7 @@ export async function loadProductGroups() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading product groups:', error);
+        logger.error('Error loading product groups:', error);
         throw error;
     }
 }
@@ -93,7 +94,7 @@ export async function loadProductGroupMembers() {
         
         // Debug: Log raw data from database
         if (members && members.length > 0) {
-            console.log('🔍 loadProductGroupMembers - Raw data from database (first 3):', members.slice(0, 3).map(m => ({
+            logger.log('🔍 loadProductGroupMembers - Raw data from database (first 3):', members.slice(0, 3).map(m => ({
                 product_code: m.product_code,
                 product_codeType: typeof m.product_code,
                 product_group_code: m.product_group_code,
@@ -101,7 +102,7 @@ export async function loadProductGroupMembers() {
                 allKeys: Object.keys(m)
             })));
         } else {
-            console.warn('⚠️ loadProductGroupMembers - No members found in database!');
+            logger.warn('⚠️ loadProductGroupMembers - No members found in database!');
         }
         
         // Load groups separately for mapping
@@ -119,7 +120,7 @@ export async function loadProductGroupMembers() {
         const transformed = members?.map((member, index) => {
             // Debug: Log if product_code is missing
             if (!member.product_code) {
-                console.warn(`⚠️ loadProductGroupMembers - Member at index ${index} has no product_code:`, member);
+                logger.warn(`⚠️ loadProductGroupMembers - Member at index ${index} has no product_code:`, member);
             }
             return {
                 code: member.product_code,  // Rename product_code to code
@@ -131,7 +132,7 @@ export async function loadProductGroupMembers() {
         
         // Debug: Log first few transformed members
         if (transformed.length > 0) {
-            console.log('🔍 loadProductGroupMembers - First 3 transformed members:', transformed.slice(0, 3).map((m, idx) => ({
+            logger.log('🔍 loadProductGroupMembers - First 3 transformed members:', transformed.slice(0, 3).map((m, idx) => ({
                 code: m.code,
                 codeType: typeof m.code,
                 codeValue: `"${m.code}"`,
@@ -143,7 +144,7 @@ export async function loadProductGroupMembers() {
         
         return transformed;
     } catch (error) {
-        console.error('Error loading product group members:', error);
+        logger.error('Error loading product group members:', error);
         throw error;
     }
 }
@@ -161,7 +162,7 @@ export async function loadProductGroupAvailability() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading product group availability:', error);
+        logger.error('Error loading product group availability:', error);
         throw error;
     }
 }
@@ -181,7 +182,7 @@ export function isProductGroupAvailable(groupCode, availabilityRules, userZona, 
     
     // Debug logging for first few groups
     if (groupCode && (groupCode.includes('WFR') || groupCode.includes('SIP'))) {
-        console.log(`🔍 isProductGroupAvailable for ${groupCode}:`, {
+        logger.log(`🔍 isProductGroupAvailable for ${groupCode}:`, {
             groupCode,
             rulesCount: groupRules.length,
             userZona,
@@ -294,7 +295,7 @@ export async function loadPrincipals() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading principals:', error);
+        logger.error('Error loading principals:', error);
         throw error;
     }
 }
@@ -326,7 +327,7 @@ export async function loadRegions() {
             name: regionName
         }));
     } catch (error) {
-        console.error('Error loading regions:', error);
+        logger.error('Error loading regions:', error);
         throw error;
     }
 }
@@ -363,7 +364,7 @@ export async function loadDepos(regionCode = null) {
         
         return Array.from(depoMap.values());
     } catch (error) {
-        console.error('Error loading depos:', error);
+        logger.error('Error loading depos:', error);
         throw error;
     }
 }
@@ -381,13 +382,13 @@ export async function getZonaByDepoId(depoId) {
             .single();
         
         if (error) {
-            console.error('Error getting zona:', error);
+            logger.error('Error getting zona:', error);
             return null;
         }
         
         return data?.zona || null;
     } catch (error) {
-        console.error('Error getting zona by depo_id:', error);
+        logger.error('Error getting zona by depo_id:', error);
         return null;
     }
 }
@@ -406,17 +407,17 @@ export async function getDepoInfoByDepoId(depoId) {
             .limit(1);
         
         if (error) {
-            console.error('Error getting depo info:', error);
+            logger.error('Error getting depo info:', error);
             return null;
         }
         
         if (!data || data.length === 0) {
-            console.warn('No depo info found for depo_id:', depoId);
+            logger.warn('No depo info found for depo_id:', depoId);
             return null;
         }
         
         const depoInfo = data[0];
-        console.log('📋 Depo info retrieved:', depoInfo, 'for depo_id:', depoId);
+        logger.log('📋 Depo info retrieved:', depoInfo, 'for depo_id:', depoId);
         
         return {
             depo_name: depoInfo?.depo_name || null,
@@ -424,7 +425,7 @@ export async function getDepoInfoByDepoId(depoId) {
             zona: depoInfo?.zona || null
         };
     } catch (error) {
-        console.error('Error getting depo info by depo_id:', error);
+        logger.error('Error getting depo info by depo_id:', error);
         return null;
     }
 }
@@ -447,7 +448,7 @@ export async function getProductPrice(productCode, zoneCode) {
         if (error) return null;
         return data?.base_price || null;
     } catch (error) {
-        console.error('Error getting product price:', error);
+        logger.error('Error getting product price:', error);
         return null;
     }
 }
@@ -465,7 +466,7 @@ export async function loadBundlePromos() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading bundle promos:', error);
+        logger.error('Error loading bundle promos:', error);
         throw error;
     }
 }
@@ -483,7 +484,7 @@ export async function loadBucketMembers() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading bucket members:', error);
+        logger.error('Error loading bucket members:', error);
         throw error;
     }
 }
@@ -503,7 +504,7 @@ export async function loadBundlePromoGroups(promoId) {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading bundle promo groups:', error);
+        logger.error('Error loading bundle promo groups:', error);
         throw error;
     }
 }
@@ -522,7 +523,7 @@ export async function loadAllBundlePromoGroups() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading all bundle promo groups:', error);
+        logger.error('Error loading all bundle promo groups:', error);
         throw error;
     }
 }
@@ -540,7 +541,7 @@ export async function loadPromoAvailability() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading promo availability:', error);
+        logger.error('Error loading promo availability:', error);
         throw error;
     }
 }
@@ -681,7 +682,7 @@ export async function loadPrincipalDiscountTiers() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading principal discount tiers:', error);
+        logger.error('Error loading principal discount tiers:', error);
         throw error;
     }
 }
@@ -692,14 +693,34 @@ export async function loadPrincipalDiscountTiers() {
 export async function loadGroupPromos() {
     try {
         const supabase = getSupabaseClient();
-        const { data, error } = await supabase
-            .from('group_promo')
-            .select('promo_id, description, product_group_code, tier_mode, tier_unit, consider_variant');
+        // Fetch all rows using pagination (Supabase default limit is 1000 rows)
+        const batchSize = 1000;
+        let allData = [];
+        let from = 0;
+        let hasMore = true;
         
-        if (error) throw error;
-        return data || [];
+        while (hasMore) {
+            const { data, error } = await supabase
+                .from('group_promo')
+                .select('promo_id, description, product_group_code, tier_mode, tier_unit, consider_variant')
+                .range(from, from + batchSize - 1);
+            
+            if (error) throw error;
+            
+            if (data && data.length > 0) {
+                allData = allData.concat(data);
+                // If we got fewer rows than batchSize, we've reached the end
+                hasMore = data.length === batchSize;
+                from += batchSize;
+            } else {
+                hasMore = false;
+            }
+        }
+        
+        logger.log(`Loaded ${allData.length} group promos from database`);
+        return allData;
     } catch (error) {
-        console.error('Error loading group promos:', error);
+        logger.error('Error loading group promos:', error);
         throw error;
     }
 }
@@ -710,16 +731,36 @@ export async function loadGroupPromos() {
 export async function loadGroupPromoTiers() {
     try {
         const supabase = getSupabaseClient();
-        const { data, error } = await supabase
-            .from('group_promo_tiers')
-            .select('promo_id, description, min_qty, discount_per_unit, variant_count, priority')
-            .order('promo_id', { ascending: true })
-            .order('min_qty', { ascending: true });
+        // Fetch all rows using pagination (Supabase default limit is 1000 rows)
+        const batchSize = 1000;
+        let allData = [];
+        let from = 0;
+        let hasMore = true;
         
-        if (error) throw error;
-        return data || [];
+        while (hasMore) {
+            const { data, error } = await supabase
+                .from('group_promo_tiers')
+                .select('promo_id, description, min_qty, discount_per_unit, variant_count, priority')
+                .order('promo_id', { ascending: true })
+                .order('min_qty', { ascending: true })
+                .range(from, from + batchSize - 1);
+            
+            if (error) throw error;
+            
+            if (data && data.length > 0) {
+                allData = allData.concat(data);
+                // If we got fewer rows than batchSize, we've reached the end
+                hasMore = data.length === batchSize;
+                from += batchSize;
+            } else {
+                hasMore = false;
+            }
+        }
+        
+        logger.log(`Loaded ${allData.length} group promo tiers from database`);
+        return allData;
     } catch (error) {
-        console.error('Error loading group promo tiers:', error);
+        logger.error('Error loading group promo tiers:', error);
         throw error;
     }
 }
@@ -738,7 +779,7 @@ export async function loadInvoiceDiscounts() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading invoice discounts:', error);
+        logger.error('Error loading invoice discounts:', error);
         throw error;
     }
 }
@@ -756,7 +797,7 @@ export async function loadFreeProductPromos() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading free product promos:', error);
+        logger.error('Error loading free product promos:', error);
         throw error;
     }
 }
@@ -778,7 +819,7 @@ export async function loadFreeProductPromoTiers() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading free product promo tiers:', error);
+        logger.error('Error loading free product promo tiers:', error);
         throw error;
     }
 }
@@ -807,7 +848,7 @@ export async function getProductPrincipal(productCode) {
         // principal_id is already the principal code (TEXT), return it directly
         return product.principal_id;
     } catch (error) {
-        console.error(`Error getting principal for product ${productCode}:`, error);
+        logger.error(`Error getting principal for product ${productCode}:`, error);
         return null;
     }
 }
@@ -851,7 +892,7 @@ export async function batchGetProductPrincipals(productCodes) {
         
         return principalMap;
     } catch (error) {
-        console.error('Error batch getting product principals:', error);
+        logger.error('Error batch getting product principals:', error);
         return new Map();
     }
 }
@@ -870,7 +911,7 @@ export async function loadLoyaltyClasses() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading loyalty classes:', error);
+        logger.error('Error loading loyalty classes:', error);
         throw error;
     }
 }
@@ -889,7 +930,7 @@ export async function loadLoyaltyAreaRules() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading loyalty area rules:', error);
+        logger.error('Error loading loyalty area rules:', error);
         throw error;
     }
 }
@@ -907,7 +948,7 @@ export async function loadLoyaltyAvailability() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('Error loading loyalty availability:', error);
+        logger.error('Error loading loyalty availability:', error);
         throw error;
     }
 }
@@ -1074,14 +1115,14 @@ export async function getMasterVersion() {
         if (error) {
             // Jika tabel metadata belum ada, return empty object
             if (error.code === 'PGRST116') {
-                console.warn('Metadata table not found, returning empty version');
+                logger.warn('Metadata table not found, returning empty version');
                 return {};
             }
             throw error;
         }
         return data?.value || {};
     } catch (error) {
-        console.error('Error getting master version:', error);
+        logger.error('Error getting master version:', error);
         return {};
     }
 }
@@ -1106,7 +1147,7 @@ export async function syncCollectionData(collectionName, versionKey, loadFunctio
             dbData = JSON.parse(storedData);
         }
     } catch (e) {
-        console.warn(`Failed to parse cached data for ${collectionName}:`, e);
+        logger.warn(`Failed to parse cached data for ${collectionName}:`, e);
         dbData = null;
     }
 
@@ -1117,7 +1158,7 @@ export async function syncCollectionData(collectionName, versionKey, loadFunctio
 
         if (dbData && serverVersion === localVersion && localVersion > 0) {
             // Versi sama, gunakan cache
-            console.log(`✅ ${collectionName} (v${localVersion}): Siap dari Cache`);
+            logger.log(`✅ ${collectionName} (v${localVersion}): Siap dari Cache`);
             return { 
                 data: dbData, 
                 fromCache: true, 
@@ -1126,9 +1167,9 @@ export async function syncCollectionData(collectionName, versionKey, loadFunctio
         } else {
             // Versi berbeda atau belum ada cache, ambil dari server
             if (localVersion > 0) {
-                console.log(`🔄 ${collectionName}: Update v${localVersion} → v${serverVersion}`);
+                logger.log(`🔄 ${collectionName}: Update v${localVersion} → v${serverVersion}`);
             } else {
-                console.log(`📥 ${collectionName} (v${serverVersion}): Unduh Pertama`);
+                logger.log(`📥 ${collectionName} (v${serverVersion}): Unduh Pertama`);
             }
             
             dbData = await loadFunction();
@@ -1145,11 +1186,11 @@ export async function syncCollectionData(collectionName, versionKey, loadFunctio
             };
         }
     } catch (error) {
-        console.error(`❌ Gagal sync ${collectionName}:`, error);
+        logger.error(`❌ Gagal sync ${collectionName}:`, error);
         
         // Fallback ke cache lama jika ada
         if (dbData) {
-            console.warn(`⚠️ Menggunakan data lama dari cache untuk ${collectionName}`);
+            logger.warn(`⚠️ Menggunakan data lama dari cache untuk ${collectionName}`);
             return { 
                 data: dbData, 
                 fromCache: true, 

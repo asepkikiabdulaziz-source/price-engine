@@ -6,7 +6,7 @@
     "build": "node build.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.89.0",
-    "csv-parse": "^6.1.0"
+    "@supabase/supabase-js": "2.89.0",
+    "csv-parse": "6.1.0"
   }
 }

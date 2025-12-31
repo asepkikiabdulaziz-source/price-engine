@@ -8,6 +8,8 @@ const urlsToCache = [
     '/auth.js',
     '/database.js',
     '/calculation.js',
+    '/validation.js',
+    '/logger.js',
     '/env.js',
     '/manifest.json',
     'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
@@ -108,7 +110,15 @@ self.addEventListener('fetch', (event) => {
                     return networkResponse;
                 } catch (fetchError) {
                     // Network fetch failed - try cache as fallback
-                    console.warn('Service Worker: Fetch failed for', event.request.url, fetchError);
+                    // Only log warnings for non-critical resources
+                    const url = new URL(event.request.url);
+                    const isCriticalResource = url.pathname.endsWith('.html') || 
+                                              url.pathname.endsWith('.js') || 
+                                              url.pathname.endsWith('.css');
+                    
+                    if (isCriticalResource) {
+                        console.warn('Service Worker: Fetch failed for', event.request.url, fetchError);
+                    }
                     
                     const cachedResponse = await caches.match(event.request);
                     if (cachedResponse) {

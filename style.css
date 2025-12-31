@@ -1037,6 +1037,109 @@ body {
     margin-top: 5px;
 }
 
+/* Strata Promo Accordion - Compact Style */
+.strata-promo-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.strata-promo-accordion-item {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    margin-bottom: 2px;
+    overflow: visible;
+    display: block !important;
+    visibility: visible !important;
+}
+
+.strata-promo-header {
+    padding: 6px 10px;
+    background: #f8f9fa;
+    cursor: pointer;
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    transition: background-color 0.2s;
+    user-select: none;
+    visibility: visible !important;
+}
+
+.strata-promo-header:hover {
+    background: #e9ecef;
+}
+
+.strata-promo-header .accordion-toggle {
+    font-size: 0.7em;
+    color: #6c757d;
+    transition: transform 0.2s;
+    flex-shrink: 0;
+    width: 14px;
+    text-align: center;
+    display: inline-block;
+}
+
+.strata-promo-header-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.strata-promo-id {
+    color: #1e3a8a;
+    font-size: 0.9em;
+    font-weight: 600;
+}
+
+.strata-promo-desc {
+    color: #374151;
+    font-size: 0.8em;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.strata-promo-detail {
+    color: #6b7280;
+    font-size: 0.75em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.strata-promo-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out, padding 0.3s ease-out;
+    padding: 0 10px;
+    background: white;
+    display: block;
+}
+
+.strata-promo-content.expanded {
+    max-height: 2000px;
+    padding: 8px 10px;
+    display: block !important;
+}
+
+.strata-promo-content .promo-tier-table {
+    font-size: 0.8em;
+    margin-top: 0;
+}
+
+.strata-promo-content .promo-tier-table th {
+    padding: 6px 8px;
+    font-size: 0.85em;
+}
+
+.strata-promo-content .promo-tier-table td {
+    padding: 6px 8px;
+}
+
 .promo-table-container {
     padding: 10px;
 }

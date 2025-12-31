@@ -1,6 +1,7 @@
-// Authentication Logic using Supabase
+﻿// Authentication Logic using Supabase
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './env.js';
+import { logger } from './logger.js';
 
 // Supabase configuration (loaded from env.js)
 
@@ -20,14 +21,14 @@ export async function initAuth() {
         if (!SUPABASE_URL || !SUPABASE_ANON_KEY || 
             SUPABASE_URL === 'YOUR_SUPABASE_URL' || 
             SUPABASE_ANON_KEY === 'YOUR_SUPABASE_ANON_KEY') {
-            console.warn('Supabase credentials not configured. Please update env.js with your credentials.');
+            logger.warn('Supabase credentials not configured. Please update env.js with your credentials.');
             return;
         }
         
         supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        console.log('Supabase initialized successfully');
+        logger.log('Supabase initialized successfully');
     } catch (error) {
-        console.error('Supabase initialization error:', error);
+        logger.error('Supabase initialization error:', error);
         throw error;
     }
 }
@@ -49,7 +50,7 @@ export async function login(regionCode, depoCode, kodeSales, password) {
         // Generate login_code dari depo_id + kode sales (format: depo_id-kode_sales)
         const loginCode = `${depoCode}-${kodeSales}`;
         
-        console.log('🔍 Login attempt:', {
+        logger.log('Login attempt:', {
             regionCode,
             depoCode,
             kodeSales,
@@ -63,13 +64,13 @@ export async function login(regionCode, depoCode, kodeSales, password) {
             .eq('login_code', loginCode);
         
         if (errorAll) {
-            console.error('❌ Query error:', errorAll);
+            logger.error('Query error:', errorAll);
             throw new Error(`Error query database: ${errorAll.message}`);
         }
         
-        console.log('📊 Records found:', sessionDataAll?.length || 0);
+        logger.log('Records found:', sessionDataAll?.length || 0);
         if (sessionDataAll && sessionDataAll.length > 0) {
-            console.log('📋 Record details:', {
+            logger.log('Record details:', {
                 login_code: sessionDataAll[0].login_code,
                 slot_is_active: sessionDataAll[0].slot_is_active,
                 assignment_is_active: sessionDataAll[0].assignment_is_active,
@@ -144,7 +145,7 @@ export async function login(regionCode, depoCode, kodeSales, password) {
             session: authData.session
         };
     } catch (error) {
-        console.error('Login error:', error);
+        logger.error('Login error:', error);
         throw error;
     }
 }
@@ -171,7 +172,7 @@ export async function logout() {
         localStorage.removeItem('price_engine_user_session');
         return true;
     } catch (error) {
-        console.error('Logout error:', error);
+        logger.error('Logout error:', error);
         // Clear localStorage even if signOut fails (gunakan key spesifik)
         localStorage.removeItem('price_engine_user_session');
         throw error;
@@ -179,9 +180,57 @@ export async function logout() {
 }
 
 /**
+ * Save user session to localStorage with expiration timestamp
+ * Session expires after 24 hours (default) or custom duration
+ * @param {Object} userData - User data to save
+ * @param {number} expirationHours - Hours until expiration (default: 24)
+ */
+function saveUserSession(userData, expirationHours = 24) {
+    try {
+        const expirationTime = Date.now() + (expirationHours * 60 * 60 * 1000);
+        const sessionData = {
+            ...userData,
+            _expiresAt: expirationTime,
+            _savedAt: Date.now()
+        };
+        localStorage.setItem('price_engine_user_session', JSON.stringify(sessionData));
+        logger.log('User session saved with expiration:', new Date(expirationTime).toISOString());
+    } catch (error) {
+        logger.error('Error saving user session:', error);
+        throw error;
+    }
+}
+
+/**
+ * Check if session has expired
+ * @param {Object} sessionData - Session data from localStorage
+ * @returns {boolean} - True if session is expired
+ */
+function isSessionExpired(sessionData) {
+    if (!sessionData || !sessionData._expiresAt) {
+        // Old format without expiration - consider expired for security
+        return true;
+    }
+    return Date.now() > sessionData._expiresAt;
+}
+
+/**
+ * Clean expired session from localStorage
+ */
+function clearExpiredSession() {
+    try {
+        localStorage.removeItem('price_engine_user_session');
+        logger.log('Expired session cleared from localStorage');
+    } catch (error) {
+        logger.error('Error clearing expired session:', error);
+    }
+}
+
+/**
  * Get current user from localStorage (session)
  * Session disimpan setelah login berhasil
  * Validasi dengan Supabase Auth untuk memastikan session masih valid
+ * Check expiration timestamp
  */
 export async function getCurrentUser() {
     try {
@@ -191,7 +240,17 @@ export async function getCurrentUser() {
             return null;
         }
         
-        const user = JSON.parse(sessionData);
+        const userData = JSON.parse(sessionData);
+        
+        // Check expiration
+        if (isSessionExpired(userData)) {
+            logger.warn('Session expired, clearing from localStorage');
+            clearExpiredSession();
+            return null;
+        }
+        
+        // Remove internal fields before returning
+        const { _expiresAt, _savedAt, ...user } = userData;
         
         // Validasi session dengan Supabase Auth (jika supabase sudah diinit)
         if (supabase) {
@@ -199,15 +258,15 @@ export async function getCurrentUser() {
                 const { data: { session }, error } = await supabase.auth.getSession();
                 if (error || !session) {
                     // Session tidak valid atau expired, hapus dari localStorage
-                    localStorage.removeItem('price_engine_user_session');
+                    clearExpiredSession();
                     return null;
                 }
                 // Session valid, return user
                 return user;
             } catch (authError) {
                 // Jika ada error saat validasi, hapus session
-                console.error('Session validation error:', authError);
-                localStorage.removeItem('price_engine_user_session');
+                logger.error('Session validation error:', authError);
+                clearExpiredSession();
                 return null;
             }
         }
@@ -215,11 +274,19 @@ export async function getCurrentUser() {
         // Jika supabase belum diinit, return user dari localStorage (untuk fallback)
         return user;
     } catch (error) {
-        console.error('Get current user error:', error);
+        logger.error('Get current user error:', error);
         // Jika error, hapus session yang mungkin corrupt
-        localStorage.removeItem('price_engine_user_session');
+        clearExpiredSession();
         return null;
     }
+}
+
+/**
+ * Save user session (exported for use in app.js after login)
+ * @param {Object} userData - User data to save
+ */
+export function saveSession(userData) {
+    saveUserSession(userData, 24); // 24 hours expiration
 }
 
 /**
@@ -234,7 +301,7 @@ export async function getCurrentSession() {
         
         return JSON.parse(sessionData);
     } catch (error) {
-        console.error('Get current session error:', error);
+        logger.error('Get current session error:', error);
         return null;
     }
 }
