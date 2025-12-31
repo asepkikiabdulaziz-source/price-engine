@@ -1,21 +1,184 @@
 # Panduan Deploy Manual di Netlify
 
-Panduan ini menjelaskan cara melakukan deploy manual di Netlify melalui dashboard.
+Panduan ini menjelaskan cara melakukan deploy manual di Netlify, **dengan atau tanpa GitHub repository**.
 
 ## 🎯 Kapan Menggunakan Deploy Manual?
 
 Deploy manual berguna ketika:
-- Ingin deploy tanpa push ke GitHub
+- Ingin deploy **tanpa GitHub repository** (drag & drop files)
 - Ingin trigger deploy ulang tanpa mengubah code
 - Ingin clear cache dan deploy ulang
 - Testing deployment dengan environment variables baru
 - Fix build yang gagal tanpa perubahan code
+- Deploy dari local files tanpa push ke Git
 
 ## 📋 Prerequisites
 
 - Akun Netlify (login ke [app.netlify.com](https://app.netlify.com))
-- Site sudah terhubung dengan GitHub repository
+- File project siap (jika deploy tanpa GitHub)
 - Environment variables sudah di-set di Netlify Dashboard
+
+## 🚀 Deploy Manual TANPA GitHub Repository (Drag & Drop)
+
+Metode ini paling mudah untuk deploy tanpa menggunakan GitHub.
+
+### Step 1: Siapkan File untuk Deploy
+
+1. **Build project lokal** (generate `env.js` dari environment variables):
+   ```bash
+   # Set environment variables di terminal
+   export SUPABASE_URL="https://dthgezcoklarfwbzkqym.supabase.co"
+   export SUPABASE_ANON_KEY="your-key-here"
+   
+   # Run build script
+   npm run build
+   ```
+
+2. **Atau buat `env.js` manual** jika tidak ada build script:
+   Buat file `env.js` di root project dengan isi:
+   ```javascript
+   export const SUPABASE_URL = 'https://dthgezcoklarfwbzkqym.supabase.co';
+   export const SUPABASE_ANON_KEY = 'your-key-here';
+   ```
+
+3. **Siapkan folder deploy** yang berisi file-file berikut:
+   ```
+   deploy-folder/
+   ├── index.html
+   ├── app.js
+   ├── auth.js
+   ├── database.js
+   ├── calculation.js
+   ├── validation.js
+   ├── logger.js
+   ├── env.js          ← Pastikan sudah di-generate dengan credentials
+   ├── style.css
+   ├── sw.js
+   ├── manifest.json
+   ├── netlify.toml
+   ├── package.json
+   └── js/
+       └── store.js
+   ```
+
+### Step 2: Deploy via Drag & Drop
+
+1. **Login ke Netlify Dashboard**
+   - Buka [app.netlify.com](https://app.netlify.com)
+   - Login dengan akun Anda
+
+2. **Pilih Deploy Method**
+   - Di dashboard, cari bagian **"Sites"**
+   - Jika sudah ada site: klik **"Add new site"** → **"Deploy manually"**
+   - Jika belum ada site: langsung lihat area **"Want to deploy a new site without connecting to Git? Drag and drop your site output folder here"**
+
+3. **Drag & Drop Folder**
+   - Drag folder yang sudah disiapkan (berisi file-file deploy) ke area drop zone
+   - Atau klik area drop zone untuk browse folder
+   - Netlify akan otomatis upload dan deploy
+
+4. **Tunggu Deploy Selesai**
+   - Netlify akan menunjukkan progress upload dan deploy
+   - Setelah selesai, site akan live di URL: `https://random-name.netlify.app`
+
+5. **Set Custom Domain (Optional)**
+   - Site settings → Domain settings → Add custom domain
+
+### Step 3: Set Environment Variables (Penting!)
+
+Jika menggunakan build script, environment variables harus di-set **sebelum build lokal**.
+
+Jika deploy manual tanpa build script:
+- Environment variables **tidak bisa di-set via dashboard** untuk drag & drop deploy
+- Harus sudah include di `env.js` yang di-deploy
+- **Catatan**: Ini kurang aman karena credentials ada di file
+
+**Rekomendasi**: Gunakan build script lokal atau Netlify CLI (lihat metode berikutnya)
+
+## 🛠️ Deploy Manual dengan Netlify CLI (Tanpa GitHub)
+
+Netlify CLI memungkinkan deploy dari local files dengan tetap bisa menggunakan environment variables.
+
+### Step 1: Install Netlify CLI
+
+```bash
+# Install via npm (pastikan Node.js sudah terinstall)
+npm install -g netlify-cli
+
+# Atau via yarn
+yarn global add netlify-cli
+```
+
+### Step 2: Login ke Netlify
+
+```bash
+netlify login
+```
+
+Ini akan membuka browser untuk autentikasi.
+
+### Step 3: Build Project Lokal
+
+```bash
+# Set environment variables
+export SUPABASE_URL="https://dthgezcoklarfwbzkqym.supabase.co"
+export SUPABASE_ANON_KEY="your-key-here"
+
+# Build project (generate env.js)
+npm run build
+```
+
+### Step 4: Deploy ke Netlify
+
+```bash
+# Deploy ke production
+netlify deploy --prod
+
+# Atau deploy draft dulu untuk test
+netlify deploy
+```
+
+### Step 5: Set Environment Variables di Netlify (Jika perlu)
+
+Setelah site dibuat, set environment variables via dashboard:
+
+1. Netlify Dashboard → Site settings → Environment variables
+2. Add variables:
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+3. Deploy ulang jika perlu (untuk build dengan env vars)
+
+## 🔄 Update Deploy Manual (Tanpa GitHub)
+
+### Update via Drag & Drop (Site Baru Setiap Kali)
+
+1. Build ulang project lokal (update files)
+2. Netlify Dashboard → Add new site → Deploy manually
+3. Drag & drop folder baru
+4. Netlify akan membuat site baru (atau replace yang lama jika di site yang sama)
+
+### Update via Netlify CLI (Site yang Sama)
+
+1. Update files lokal
+2. Build ulang jika perlu:
+   ```bash
+   npm run build
+   ```
+3. Deploy:
+   ```bash
+   netlify deploy --prod
+   ```
+4. Netlify akan update site yang sama
+
+### Update via Netlify Dashboard (Jika Site Sudah Ada)
+
+1. Netlify Dashboard → Site → Deploys
+2. Trigger deploy → Deploy manually
+3. Upload files baru
+
+## 📋 Deploy Manual dengan GitHub Repository (Trigger Deploy)
+
+Jika site sudah terhubung dengan GitHub, gunakan metode ini untuk trigger deploy manual:
 
 ## 🚀 Cara Deploy Manual
 
@@ -180,7 +343,19 @@ Setelah deploy:
 
 ## 🎯 Quick Reference
 
-### Deploy Manual via Dashboard
+### Deploy Manual TANPA GitHub (Drag & Drop)
+1. Siapkan folder dengan file-file project
+2. Netlify Dashboard → Add new site → Deploy manually
+3. Drag & drop folder ke drop zone
+4. Tunggu deploy selesai
+
+### Deploy Manual TANPA GitHub (Netlify CLI)
+1. `npm install -g netlify-cli`
+2. `netlify login`
+3. `npm run build` (dengan env vars)
+4. `netlify deploy --prod`
+
+### Deploy Manual DENGAN GitHub (Trigger Deploy)
 1. Netlify Dashboard → Site → Deploys
 2. Click "Trigger deploy" → "Clear cache and deploy site"
 3. Pilih branch → Deploy
