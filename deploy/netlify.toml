@@ -1,0 +1,64 @@
+# Netlify Configuration
+# File ini mengatur build settings, redirects, dan headers untuk Netlify
+
+[build]
+  # Build command untuk generate env.js dari environment variables  # command removed for manual deploy
+  publish = "/"
+  # Base directory (jika project di subfolder)
+  # base = ""
+
+# Redirect rules untuk SPA (Single Page Application)
+# Semua route diarahkan ke index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Security headers untuk semua file
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    # Content Security Policy - Enhanced security
+    # Note: 'unsafe-inline' diperlukan untuk beberapa inline scripts/styles
+    # Consider using nonces atau hashes untuk lebih secure di future
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://dthgezcoklarfwbzkqym.supabase.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://cdn.jsdelivr.net https://dthgezcoklarfwbzkqym.supabase.co https://*.supabase.co; frame-ancestors 'none';"
+
+# Headers khusus untuk service worker
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+    Service-Worker-Allowed = "/"
+    Content-Type = "application/javascript"
+
+# Headers untuk manifest.json
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+    Content-Type = "application/manifest+json"
+    Cache-Control = "public, max-age=3600"
+
+# Headers untuk JavaScript modules (ESM)
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Content-Type = "application/javascript; charset=utf-8"
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Headers untuk CSS
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Content-Type = "text/css; charset=utf-8"
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Headers untuk HTML
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
