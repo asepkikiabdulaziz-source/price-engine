@@ -634,6 +634,9 @@ function showApp() {
         }
     }
     
+    // Tampilkan welcome message dengan versi info
+    showWelcomeMessage();
+    
     loadAppContent();
 }
 
