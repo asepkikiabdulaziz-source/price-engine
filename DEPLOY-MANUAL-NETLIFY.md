@@ -24,6 +24,46 @@ Metode ini paling mudah untuk deploy tanpa menggunakan GitHub.
 
 ### Step 1: Siapkan File untuk Deploy
 
+**Cara Termudah: Gunakan Script Otomatis** ⭐
+
+1. **Set Environment Variables**:
+   ```bash
+   # Windows (PowerShell)
+   $env:SUPABASE_URL="https://dthgezcoklarfwbzkqym.supabase.co"
+   $env:SUPABASE_ANON_KEY="your-key-here"
+   
+   # Windows (CMD)
+   set SUPABASE_URL=https://dthgezcoklarfwbzkqym.supabase.co
+   set SUPABASE_ANON_KEY=your-key-here
+   
+   # Linux/Mac
+   export SUPABASE_URL="https://dthgezcoklarfwbzkqym.supabase.co"
+   export SUPABASE_ANON_KEY="your-key-here"
+   ```
+
+2. **Jalankan Script**:
+   ```bash
+   # Windows
+   prepare-deploy.bat
+   # atau
+   .\prepare-deploy.ps1
+   
+   # Linux/Mac
+   chmod +x prepare-deploy.sh
+   ./prepare-deploy.sh
+   ```
+
+   Script akan:
+   - ✅ Generate `env.js` dari environment variables
+   - ✅ Membuat folder `deploy/`
+   - ✅ Copy semua file yang diperlukan
+   - ✅ Validasi file-file penting
+   - ✅ Memberikan summary
+
+3. **Folder `deploy/` siap untuk di-upload!**
+
+**Cara Manual (Jika tidak pakai script)**:
+
 1. **Build project lokal** (generate `env.js` dari environment variables):
    ```bash
    # Set environment variables di terminal
@@ -72,17 +112,34 @@ Metode ini paling mudah untuk deploy tanpa menggunakan GitHub.
    - Jika sudah ada site: klik **"Add new site"** → **"Deploy manually"**
    - Jika belum ada site: langsung lihat area **"Want to deploy a new site without connecting to Git? Drag and drop your site output folder here"**
 
-3. **Drag & Drop Folder**
-   - Drag folder yang sudah disiapkan (berisi file-file deploy) ke area drop zone
-   - Atau klik area drop zone untuk browse folder
+3. **Drag & Drop Folder `deploy/`**
+   - Drag folder `deploy/` yang sudah dibuat oleh script ke area drop zone
+   - Atau klik area drop zone untuk browse folder `deploy/`
    - Netlify akan otomatis upload dan deploy
+   - **PENTING**: Folder `deploy/` sudah berisi `netlify.toml` tanpa build command, jadi tidak akan ada error build
 
 4. **Tunggu Deploy Selesai**
    - Netlify akan menunjukkan progress upload dan deploy
+   - **Tidak akan ada build step** karena file sudah siap (netlify.toml tanpa build command)
    - Setelah selesai, site akan live di URL: `https://random-name.netlify.app`
 
 5. **Set Custom Domain (Optional)**
    - Site settings → Domain settings → Add custom domain
+
+### ⚠️ Troubleshooting: Build Command Error
+
+Jika masih muncul error `"build.command" failed` setelah drag & drop:
+
+**Penyebab**: Netlify masih membaca build command dari konfigurasi site di dashboard (jika site sudah pernah di-deploy dengan GitHub)
+
+**Solusi**: 
+1. Setelah drag & drop, buka **Site settings** → **Build & deploy** → **Build settings**
+2. Hapus atau kosongkan **"Build command"** (biarkan kosong)
+3. Set **"Publish directory"** ke `/`
+4. Klik **"Save"**
+5. Trigger deploy ulang: **Deploys** → **Trigger deploy** → **"Clear cache and deploy site"**
+
+**Catatan**: Script `prepare-deploy.js` sudah membuat `netlify.toml` tanpa build command, tapi jika site sudah punya build settings di dashboard, itu yang akan digunakan.
 
 ### Step 3: Set Environment Variables (Penting!)
 
@@ -311,6 +368,27 @@ Setelah deploy:
 3. Hard refresh browser (Ctrl+Shift+R atau Cmd+Shift+R)
 4. Cek apakah deploy benar-benar selesai (status "Published")
 
+### Problem: Build Command Error (untuk Deploy Manual)
+
+**Error**: `"build.command" failed` atau `Command failed with exit code 1: npm run build`
+
+**Penyebab**: 
+- Netlify masih mencoba menjalankan build command padahal file sudah di-build lokal
+- Build command masih di-set di dashboard atau netlify.toml
+
+**Solusi**:
+1. **Untuk Deploy Manual Drag & Drop**:
+   - Pastikan folder `deploy/` sudah dibuat dengan script `prepare-deploy.js`
+   - Script sudah membuat `netlify.toml` tanpa build command
+   - Setelah drag & drop, jika masih error:
+     - Site settings → Build & deploy → Build settings
+     - Hapus/kosongkan "Build command"
+     - Set "Publish directory" ke `/`
+     - Trigger deploy ulang
+
+2. **Alternatif**: Hapus `netlify.toml` dari folder deploy jika tidak diperlukan
+   - Netlify akan menggunakan default settings (tanpa build)
+
 ### Problem: Build Timeout
 
 **Solusi:**
@@ -319,6 +397,7 @@ Setelah deploy:
    - Apakah ada infinite loop di build script?
    - Apakah dependency download terlalu lama?
    - Coba build lokal untuk debug: `npm run build`
+3. **Untuk deploy manual**: Tidak perlu build, jadi tidak akan timeout
 
 ### Problem: Environment Variables Tidak Terbaca
 
