@@ -138,6 +138,17 @@ function setupEventListeners() {
     if (logoutBtn) {
         logoutBtn.addEventListener('click', handleLogout);
     }
+    
+    // Refresh page button (untuk mobile jika ada masalah setelah logout)
+    const refreshPageBtn = document.getElementById('refresh-page-btn');
+    if (refreshPageBtn) {
+        refreshPageBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            // Force reload dengan cache bypass (hard refresh)
+            // Note: reload(true) deprecated di modern browsers, tapi masih work sebagai fallback
+            window.location.reload();
+        });
+    }
 
     // Tab navigation
     setupTabNavigation();
@@ -550,9 +561,20 @@ async function handleLogout() {
     try {
         await logout();
         currentUser = null;
-        showLogin();
+        
+        // Force clear all app state
+        // Clear cart if exists
+        if (typeof cart !== 'undefined' && cart) {
+            cart.clear();
+        }
+        
+        // Force reload page untuk memastikan semua state reset dengan benar
+        // Ini lebih reliable daripada reset manual, terutama di mobile
+        window.location.reload();
     } catch (error) {
         logger.error('Logout error:', error);
+        // Even if logout fails, try to reload
+        window.location.reload();
     }
 }
 
