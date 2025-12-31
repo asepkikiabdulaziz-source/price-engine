@@ -2,9 +2,8 @@
 # File ini mengatur build settings, redirects, dan headers untuk Netlify
 
 [build]
-  # Tidak perlu build command karena static site
-  # Jika menggunakan build script, uncomment baris di bawah:
-  # command = "npm run build"
+  # Build command untuk generate env.js dari environment variables
+  command = "npm run build"
   publish = "/"
   # Base directory (jika project di subfolder)
   # base = ""
